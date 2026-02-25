@@ -71,6 +71,7 @@
 
 #include "cfg.h"
 #include "main.h"
+#include "gmtoffset.h"
 
 #define META_FILE_BUFFER_SIZE 0x1000000
 
@@ -1052,15 +1053,14 @@ void meta_store_task(void) {
 		t = curtime;
 		memset(&lt,0,sizeof(struct tm));
 		localtime_r(&t, &lt);
-#ifdef HAVE_STRUCT_TM_TM_GMTOFF
-		if (lt.tm_gmtoff >= 0) {
-			offset = (MetaSaveOffset + (24 * 60) - (lt.tm_gmtoff / 60)) % (24 * 60);
-		} else {
-			offset = (MetaSaveOffset + (lt.tm_gmtoff / 60)) % (24 * 60);
+		{
+			long gmtoff = get_gmtoff(&lt);
+			if (gmtoff >= 0) {
+				offset = (MetaSaveOffset + (24 * 60) - (gmtoff / 60)) % (24 * 60);
+			} else {
+				offset = (MetaSaveOffset + (gmtoff / 60)) % (24 * 60);
+			}
 		}
-#else
-		offset = MetaSaveOffset;
-#endif
 	} else {
 		offset = MetaSaveOffset;
 	}

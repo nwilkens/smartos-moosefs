@@ -49,6 +49,7 @@
 #include "datapack.h"
 #include "massert.h"
 #include "mfslog.h"
+#include "gmtoffset.h"
 
 #define USE_NET_ORDER 1
 
@@ -1065,11 +1066,7 @@ void charts_inittimepointers (void) {
 	if (timepoint[SHORTRANGE]==0) {
 		now = time(NULL);
 		ts = localtime(&now);
-#ifdef HAVE_STRUCT_TM_TM_GMTOFF
-		local = now+ts->tm_gmtoff;
-#else
-		local = now;
-#endif
+		local = now + get_gmtoff(ts);
 	} else {
 		now = timepoint[SHORTRANGE]*60;
 		ts = gmtime(&now);
@@ -1111,11 +1108,7 @@ void charts_add (uint64_t *data,uint32_t datats) {
 	}
 
 	ts = localtime(&now);
-#ifdef HAVE_STRUCT_TM_TM_GMTOFF
-	local = now+ts->tm_gmtoff;
-#else
-	local = now;
-#endif
+	local = now + get_gmtoff(ts);
 
 #ifdef USE_PTHREADS
 	zassert(pthread_mutex_lock(&glock));
