@@ -16,6 +16,7 @@ mfsgui_SOURCES = \
 	../mfscommon/timeparser.c ../mfscommon/timeparser.h \
 	../mfscommon/cfg.c ../mfscommon/cfg.h \
 	../mfscommon/crc.c ../mfscommon/crc.h \
+	../mfscommon/crc_pclmul.c ../mfscommon/crc_pclmul.h \
 	../mfscommon/md5.c ../mfscommon/md5.h \
 	../mfscommon/sockets.c ../mfscommon/sockets.h \
 	../mfscommon/strerr.c ../mfscommon/strerr.h \
@@ -24,6 +25,8 @@ mfsgui_SOURCES = \
 	../mfscommon/massert.h \
 	../mfscommon/idstr.h \
 	../mfscommon/MFSCommunication.h
+
+mfsgui_CFLAGS = $(PCLMUL_CFLAGS)
 
 distclean-local: distclean-am
 	-rm -rf ./$(DEPDIR)

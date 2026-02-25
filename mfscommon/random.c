@@ -31,6 +31,10 @@
 
 #include "clocks.h"
 
+#if defined(HAVE___THREAD) && defined(_USE_PTHREADS)
+#define USE_TLS_RNG 1
+#endif
+
 static uint8_t i,j;
 static uint8_t p[256];
 #ifdef _USE_PTHREADS
@@ -89,8 +93,60 @@ int rnd_init(void) {
 	i++; \
 }
 
+#ifdef USE_TLS_RNG
+static __thread uint8_t tls_i,tls_j;
+static __thread uint8_t tls_p[256];
+static __thread uint8_t tls_initialized = 0;
+
+#define TLS_RND_RC4_STEP(result) { \
+	register uint8_t x; \
+	x = tls_j+tls_p[tls_i]; \
+	tls_j = tls_p[x]; \
+	x = tls_p[tls_j]; \
+	x = tls_p[x]+1; \
+	result = tls_p[x]; \
+	x = tls_p[tls_i]; \
+	tls_p[tls_i] = tls_p[tls_j]; \
+	tls_p[tls_j] = x; \
+	tls_i++; \
+}
+
+static void tls_rnd_init(void) {
+	uint8_t key[64];
+	register uint8_t t;
+	uint16_t l;
+
+	pthread_mutex_lock(&lock);
+	for (l=0 ; l<64 ; l++) {
+		RND_RC4_STEP(key[l]);
+	}
+	pthread_mutex_unlock(&lock);
+
+	for (l=0 ; l<256 ; l++) {
+		tls_p[l] = l;
+	}
+	tls_j = 0;
+	for (l=0 ; l<768 ; l++) {
+		tls_i = l&0xFF;
+		t = tls_j+tls_p[tls_i]+key[l%64];
+		tls_j = tls_p[t];
+		t = tls_p[tls_i];
+		tls_p[tls_i] = tls_p[tls_j];
+		tls_p[tls_j] = t;
+	}
+	tls_i = 0;
+	tls_initialized = 1;
+}
+#endif
+
 uint8_t rndu8(void) {
 	uint8_t r;
+#ifdef USE_TLS_RNG
+	if (!tls_initialized) {
+		tls_rnd_init();
+	}
+	TLS_RND_RC4_STEP(r);
+#else
 #ifdef _USE_PTHREADS
 	pthread_mutex_lock(&lock);
 #endif
@@ -98,12 +154,22 @@ uint8_t rndu8(void) {
 #ifdef _USE_PTHREADS
 	pthread_mutex_unlock(&lock);
 #endif
+#endif
 	return r;
 }
 
 uint32_t rndu32(void) {
 	uint32_t res;
 	uint8_t *r = (uint8_t*)&res;
+#ifdef USE_TLS_RNG
+	if (!tls_initialized) {
+		tls_rnd_init();
+	}
+	TLS_RND_RC4_STEP(r[0]);
+	TLS_RND_RC4_STEP(r[1]);
+	TLS_RND_RC4_STEP(r[2]);
+	TLS_RND_RC4_STEP(r[3]);
+#else
 #ifdef _USE_PTHREADS
 	pthread_mutex_lock(&lock);
 #endif
@@ -114,12 +180,26 @@ uint32_t rndu32(void) {
 #ifdef _USE_PTHREADS
 	pthread_mutex_unlock(&lock);
 #endif
+#endif
 	return res;
 }
 
 uint64_t rndu64(void) {
 	uint64_t res;
 	uint8_t *r = (uint8_t*)&res;
+#ifdef USE_TLS_RNG
+	if (!tls_initialized) {
+		tls_rnd_init();
+	}
+	TLS_RND_RC4_STEP(r[0]);
+	TLS_RND_RC4_STEP(r[1]);
+	TLS_RND_RC4_STEP(r[2]);
+	TLS_RND_RC4_STEP(r[3]);
+	TLS_RND_RC4_STEP(r[4]);
+	TLS_RND_RC4_STEP(r[5]);
+	TLS_RND_RC4_STEP(r[6]);
+	TLS_RND_RC4_STEP(r[7]);
+#else
 #ifdef _USE_PTHREADS
 	pthread_mutex_lock(&lock);
 #endif
@@ -134,11 +214,20 @@ uint64_t rndu64(void) {
 #ifdef _USE_PTHREADS
 	pthread_mutex_unlock(&lock);
 #endif
+#endif
 	return res;
 }
 
 void rndbuff(uint8_t *buff,uint32_t size) {
 	uint32_t k;
+#ifdef USE_TLS_RNG
+	if (!tls_initialized) {
+		tls_rnd_init();
+	}
+	for (k=0 ; k<size ; k++) {
+		TLS_RND_RC4_STEP(buff[k]);
+	}
+#else
 #ifdef _USE_PTHREADS
 	pthread_mutex_lock(&lock);
 #endif
@@ -147,6 +236,7 @@ void rndbuff(uint8_t *buff,uint32_t size) {
 	}
 #ifdef _USE_PTHREADS
 	pthread_mutex_unlock(&lock);
+#endif
 #endif
 }
 

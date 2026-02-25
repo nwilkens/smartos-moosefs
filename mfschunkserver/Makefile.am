@@ -4,7 +4,7 @@ AM_CFLAGS =
 AM_CPPFLAGS = -I$(top_srcdir)/mfscommon
 AM_LDFLAGS =
 
-mfscsstatsdump_CFLAGS = 
+mfscsstatsdump_CFLAGS = $(PCLMUL_CFLAGS)
 mfscsstatsdump_CPPFLAGS = -I$(top_srcdir)/mfscommon
 mfscsstatsdump_LDFLAGS = $(ZLIB_LIBS)
 
@@ -14,6 +14,7 @@ mfscsstatsdump_SOURCES = \
 	../mfscommon/strerr.c ../mfscommon/strerr.h \
 	../mfscommon/mfslog.c ../mfscommon/mfslog.h \
 	../mfscommon/crc.c ../mfscommon/crc.h \
+	../mfscommon/crc_pclmul.c ../mfscommon/crc_pclmul.h \
 	../mfscommon/charts.c ../mfscommon/charts.h \
 	../mfscommon/idstr.h
 
@@ -37,6 +38,7 @@ mfschunkserver_SOURCES = \
 	../mfscommon/pcqueue.c ../mfscommon/pcqueue.h \
 	../mfscommon/lwthread.c ../mfscommon/lwthread.h \
 	../mfscommon/crc.c ../mfscommon/crc.h \
+	../mfscommon/crc_pclmul.c ../mfscommon/crc_pclmul.h \
 	../mfscommon/sockets.c ../mfscommon/sockets.h \
 	../mfscommon/conncache.c ../mfscommon/conncache.h \
 	../mfscommon/charts.c ../mfscommon/charts.h \
@@ -57,17 +59,20 @@ mfschunkserver_SOURCES = \
 	../mfscommon/MFSCommunication.h
 
 
-mfschunkserver_CFLAGS = $(PTHREAD_CFLAGS) $(DYNLINKER_FLAGS)
+mfschunkserver_CFLAGS = $(PTHREAD_CFLAGS) $(DYNLINKER_FLAGS) $(PCLMUL_CFLAGS)
 mfschunkserver_CPPFLAGS = $(AM_CPPFLAGS) -DMFSMAXFILES=16384 -D_USE_PTHREADS $(PTHREAD_CPPFLAGS) -DAPPNAME=mfschunkserver -DUSE_CONNCACHE -DUSE_IONICE
 mfschunkserver_LDFLAGS = $(PTHREAD_LIBS) $(ZLIB_LIBS) $(MATH_LIBS)
 
 mfschunktool_SOURCES = \
 	mfschunktool.c \
 	../mfscommon/crc.c ../mfscommon/crc.h \
+	../mfscommon/crc_pclmul.c ../mfscommon/crc_pclmul.h \
 	../mfscommon/clocks.c ../mfscommon/clocks.h \
 	../mfscommon/datapack.h \
 	../mfscommon/idstr.h \
 	../mfscommon/MFSCommunication.h
+
+mfschunktool_CFLAGS = $(PCLMUL_CFLAGS)
 
 mfschunkdbdump_SOURCES = \
 	mfschunkdbdump.c \

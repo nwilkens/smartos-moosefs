@@ -38,6 +38,9 @@ typedef struct _queue {
 	uint32_t elements;
 	uint32_t maxelements;
 	uint32_t closed;
+	qentry *freelist;
+	uint32_t freelist_count;
+	uint32_t freelist_max;
 	pthread_cond_t waitfree,waitfull;
 	pthread_mutex_t lock;
 } queue;
@@ -51,6 +54,9 @@ void* squeue_new(uint32_t length) {
 	q->elements = 0;
 	q->maxelements = length;
 	q->closed = 0;
+	q->freelist = NULL;
+	q->freelist_count = 0;
+	q->freelist_max = 256;
 	if (length) {
 		zassert(pthread_cond_init(&(q->waitfull),NULL));
 	}
@@ -66,6 +72,10 @@ void squeue_delete(void *que) {
 	for (qe = q->head ; qe ; qe = qen) {
 		qen = qe->next;
 		free(qe->data);
+		free(qe);
+	}
+	for (qe = q->freelist ; qe ; qe = qen) {
+		qen = qe->next;
 		free(qe);
 	}
 	zassert(pthread_mutex_unlock(&(q->lock)));
@@ -131,10 +141,6 @@ uint32_t squeue_sizeleft(void *que) {
 int squeue_put(void *que,void *data) {
 	queue *q = (queue*)que;
 	qentry *qe;
-	qe = malloc(sizeof(qentry));
-	passert(qe);
-	qe->data = data;
-	qe->next = NULL;
 	zassert(pthread_mutex_lock(&(q->lock)));
 	if (q->maxelements) {
 		while (q->elements>=q->maxelements && q->closed==0) {
@@ -142,11 +148,20 @@ int squeue_put(void *que,void *data) {
 		}
 		if (q->closed) {
 			zassert(pthread_mutex_unlock(&(q->lock)));
-			free(qe);
 			errno = EIO;
 			return -1;
 		}
 	}
+	if (q->freelist) {
+		qe = q->freelist;
+		q->freelist = qe->next;
+		q->freelist_count--;
+	} else {
+		qe = malloc(sizeof(qentry));
+		passert(qe);
+	}
+	qe->data = data;
+	qe->next = NULL;
 	q->elements++;
 	*(q->tail) = qe;
 	q->tail = &(qe->next);
@@ -166,8 +181,14 @@ int squeue_tryput(void *que,void *data) {
 			return -1;
 		}
 	}
-	qe = malloc(sizeof(qentry));
-	passert(qe);
+	if (q->freelist) {
+		qe = q->freelist;
+		q->freelist = qe->next;
+		q->freelist_count--;
+	} else {
+		qe = malloc(sizeof(qentry));
+		passert(qe);
+	}
 	qe->data = data;
 	qe->next = NULL;
 	q->elements++;
@@ -199,14 +220,23 @@ int squeue_get(void *que,void **data) {
 		q->tail = &(q->head);
 	}
 	q->elements--;
-	if (q->maxelements) {
-		zassert(pthread_cond_signal(&(q->waitfull)));
+	{
+		void *_data = qe->data;
+		if (q->freelist_count < q->freelist_max) {
+			qe->next = q->freelist;
+			q->freelist = qe;
+			q->freelist_count++;
+		} else {
+			free(qe);
+		}
+		if (q->maxelements) {
+			zassert(pthread_cond_signal(&(q->waitfull)));
+		}
+		zassert(pthread_mutex_unlock(&(q->lock)));
+		if (data) {
+			*data = _data;
+		}
 	}
-	zassert(pthread_mutex_unlock(&(q->lock)));
-	if (data) {
-		*data = qe->data;
-	}
-	free(qe);
 	return 0;
 }
 
@@ -228,13 +258,22 @@ int squeue_tryget(void *que,void **data) {
 		q->tail = &(q->head);
 	}
 	q->elements--;
-	if (q->maxelements) {
-		zassert(pthread_cond_signal(&(q->waitfull)));
+	{
+		void *_data = qe->data;
+		if (q->freelist_count < q->freelist_max) {
+			qe->next = q->freelist;
+			q->freelist = qe;
+			q->freelist_count++;
+		} else {
+			free(qe);
+		}
+		if (q->maxelements) {
+			zassert(pthread_cond_signal(&(q->waitfull)));
+		}
+		zassert(pthread_mutex_unlock(&(q->lock)));
+		if (data) {
+			*data = _data;
+		}
 	}
-	zassert(pthread_mutex_unlock(&(q->lock)));
-	if (data) {
-		*data = qe->data;
-	}
-	free(qe);
 	return 0;
 }

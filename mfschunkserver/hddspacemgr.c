@@ -912,6 +912,20 @@ uint8_t hdd_spacechanged(void) {
 }
 
 void hdd_stats(uint64_t *br,uint64_t *bw,uint32_t *opr,uint32_t *opw,uint32_t *dbr,uint32_t *dbw,uint32_t *dopr,uint32_t *dopw,uint32_t *movl,uint32_t *movh,uint64_t *rtime,uint64_t *wtime) {
+#ifdef HAVE___SYNC_FETCH_AND_OP
+	*br = __sync_fetch_and_and(&stats_bytesr,0);
+	*bw = __sync_fetch_and_and(&stats_bytesw,0);
+	*opr = __sync_fetch_and_and(&stats_opr,0);
+	*opw = __sync_fetch_and_and(&stats_opw,0);
+	*dbr = __sync_fetch_and_and(&stats_databytesr,0);
+	*dbw = __sync_fetch_and_and(&stats_databytesw,0);
+	*dopr = __sync_fetch_and_and(&stats_dataopr,0);
+	*dopw = __sync_fetch_and_and(&stats_dataopw,0);
+	*movl = __sync_fetch_and_and(&stats_movels,0);
+	*movh = __sync_fetch_and_and(&stats_movehs,0);
+	*rtime = __sync_fetch_and_and(&stats_rtime,0);
+	*wtime = __sync_fetch_and_and(&stats_wtime,0);
+#else
 	zassert(pthread_mutex_lock(&statslock));
 	*br = stats_bytesr;
 	*bw = stats_bytesw;
@@ -938,9 +952,20 @@ void hdd_stats(uint64_t *br,uint64_t *bw,uint32_t *opr,uint32_t *opw,uint32_t *d
 	stats_rtime = 0;
 	stats_wtime = 0;
 	zassert(pthread_mutex_unlock(&statslock));
+#endif
 }
 
 void hdd_op_stats(uint32_t *op_create,uint32_t *op_delete,uint32_t *op_version,uint32_t *op_duplicate,uint32_t *op_truncate,uint32_t *op_duptrunc,uint32_t *op_test,uint32_t *op_split) {
+#ifdef HAVE___SYNC_FETCH_AND_OP
+	*op_create = __sync_fetch_and_and(&stats_create,0);
+	*op_delete = __sync_fetch_and_and(&stats_delete,0);
+	*op_version = __sync_fetch_and_and(&stats_version,0);
+	*op_duplicate = __sync_fetch_and_and(&stats_duplicate,0);
+	*op_truncate = __sync_fetch_and_and(&stats_truncate,0);
+	*op_duptrunc = __sync_fetch_and_and(&stats_duptrunc,0);
+	*op_test = __sync_fetch_and_and(&stats_test,0);
+	*op_split = __sync_fetch_and_and(&stats_split,0);
+#else
 	zassert(pthread_mutex_lock(&statslock));
 	*op_create = stats_create;
 	*op_delete = stats_delete;
@@ -959,9 +984,17 @@ void hdd_op_stats(uint32_t *op_create,uint32_t *op_delete,uint32_t *op_version,u
 	stats_split = 0;
 	stats_test = 0;
 	zassert(pthread_mutex_unlock(&statslock));
+#endif
 }
 
 static inline void hdd_stats_move(uint8_t hsflag) {
+#ifdef HAVE___SYNC_FETCH_AND_OP
+	if (hsflag) {
+		__sync_fetch_and_add(&stats_movehs,1);
+	} else {
+		__sync_fetch_and_add(&stats_movels,1);
+	}
+#else
 	zassert(pthread_mutex_lock(&statslock));
 	if (hsflag) {
 		stats_movehs++;
@@ -969,26 +1002,54 @@ static inline void hdd_stats_move(uint8_t hsflag) {
 		stats_movels++;
 	}
 	zassert(pthread_mutex_unlock(&statslock));
+#endif
 }
 
 static inline void hdd_stats_read(uint32_t size) {
+#ifdef HAVE___SYNC_FETCH_AND_OP
+	__sync_fetch_and_add(&stats_opr,1);
+	__sync_fetch_and_add(&stats_bytesr,size);
+#else
 	zassert(pthread_mutex_lock(&statslock));
 	stats_opr++;
 	stats_bytesr += size;
 	zassert(pthread_mutex_unlock(&statslock));
+#endif
 }
 
 static inline void hdd_stats_write(uint32_t size) {
+#ifdef HAVE___SYNC_FETCH_AND_OP
+	__sync_fetch_and_add(&stats_opw,1);
+	__sync_fetch_and_add(&stats_bytesw,size);
+#else
 	zassert(pthread_mutex_lock(&statslock));
 	stats_opw++;
 	stats_bytesw += size;
 	zassert(pthread_mutex_unlock(&statslock));
+#endif
 }
 
 static inline void hdd_stats_dataread(folder *f,uint32_t size,int64_t rtime) {
 	if (rtime<=0) {
 		return;
 	}
+#if defined(HAVE___SYNC_FETCH_AND_OP) && defined(HAVE___SYNC_BOOL_COMPARE_AND_SWAP)
+	__sync_fetch_and_add(&stats_dataopr,1);
+	__sync_fetch_and_add(&stats_databytesr,size);
+	__sync_fetch_and_add(&stats_rtime,rtime);
+	__sync_fetch_and_add(&f->cstat.rops,1);
+	__sync_fetch_and_add(&f->cstat.rbytes,size);
+	__sync_fetch_and_add(&f->cstat.nsecreadsum,rtime);
+	{
+		uint64_t old;
+		do {
+			old = f->cstat.nsecreadmax;
+			if ((int64_t)rtime <= (int64_t)old) {
+				break;
+			}
+		} while (!__sync_bool_compare_and_swap(&f->cstat.nsecreadmax,old,rtime));
+	}
+#else
 	zassert(pthread_mutex_lock(&statslock));
 	stats_dataopr++;
 	stats_databytesr += size;
@@ -1000,12 +1061,30 @@ static inline void hdd_stats_dataread(folder *f,uint32_t size,int64_t rtime) {
 		f->cstat.nsecreadmax = rtime;
 	}
 	zassert(pthread_mutex_unlock(&statslock));
+#endif
 }
 
 static inline void hdd_stats_datawrite(folder *f,uint32_t size,int64_t wtime) {
 	if (wtime<=0) {
 		return;
 	}
+#if defined(HAVE___SYNC_FETCH_AND_OP) && defined(HAVE___SYNC_BOOL_COMPARE_AND_SWAP)
+	__sync_fetch_and_add(&stats_dataopw,1);
+	__sync_fetch_and_add(&stats_databytesw,size);
+	__sync_fetch_and_add(&stats_wtime,wtime);
+	__sync_fetch_and_add(&f->cstat.wops,1);
+	__sync_fetch_and_add(&f->cstat.wbytes,size);
+	__sync_fetch_and_add(&f->cstat.nsecwritesum,wtime);
+	{
+		uint64_t old;
+		do {
+			old = f->cstat.nsecwritemax;
+			if ((int64_t)wtime <= (int64_t)old) {
+				break;
+			}
+		} while (!__sync_bool_compare_and_swap(&f->cstat.nsecwritemax,old,wtime));
+	}
+#else
 	zassert(pthread_mutex_lock(&statslock));
 	stats_dataopw++;
 	stats_databytesw += size;
@@ -1017,12 +1096,27 @@ static inline void hdd_stats_datawrite(folder *f,uint32_t size,int64_t wtime) {
 		f->cstat.nsecwritemax = wtime;
 	}
 	zassert(pthread_mutex_unlock(&statslock));
+#endif
 }
 
 static inline void hdd_stats_datafsync(folder *f,int64_t fsynctime) {
 	if (fsynctime<=0) {
 		return;
 	}
+#if defined(HAVE___SYNC_FETCH_AND_OP) && defined(HAVE___SYNC_BOOL_COMPARE_AND_SWAP)
+	__sync_fetch_and_add(&stats_wtime,fsynctime);
+	__sync_fetch_and_add(&f->cstat.fsyncops,1);
+	__sync_fetch_and_add(&f->cstat.nsecfsyncsum,fsynctime);
+	{
+		uint64_t old;
+		do {
+			old = f->cstat.nsecfsyncmax;
+			if ((int64_t)fsynctime <= (int64_t)old) {
+				break;
+			}
+		} while (!__sync_bool_compare_and_swap(&f->cstat.nsecfsyncmax,old,fsynctime));
+	}
+#else
 	zassert(pthread_mutex_lock(&statslock));
 	stats_wtime += fsynctime;
 	f->cstat.fsyncops++;
@@ -1031,6 +1125,7 @@ static inline void hdd_stats_datafsync(folder *f,int64_t fsynctime) {
 		f->cstat.nsecfsyncmax = fsynctime;
 	}
 	zassert(pthread_mutex_unlock(&statslock));
+#endif
 }
 
 uint8_t hdd_sendingchunks(void) {
@@ -6159,6 +6254,34 @@ error:
 // newversion==0 && length==1                                -> create
 // newversion==0 && length==2                                -> check chunk contents
 int hdd_chunkop(uint64_t chunkid,uint32_t version,uint32_t newversion,uint64_t copychunkid,uint32_t copyversion,uint32_t length) {
+#ifdef HAVE___SYNC_FETCH_AND_OP
+	if (newversion>0) {
+		if (length==0xFFFFFFFF) {
+			if (copychunkid==0) {
+				__sync_fetch_and_add(&stats_version,1);
+			} else {
+				__sync_fetch_and_add(&stats_duplicate,1);
+			}
+		} else if (length&0x80000000 && (copyversion==4 || copyversion==8)) {
+			__sync_fetch_and_add(&stats_split,1);
+		} else if (length<=MFSCHUNKSIZE) {
+			if (copychunkid==0) {
+				__sync_fetch_and_add(&stats_truncate,1);
+			} else {
+				__sync_fetch_and_add(&stats_duptrunc,1);
+			}
+		}
+	} else {
+		if (length==0) {
+			__sync_fetch_and_add(&stats_delete,1);
+		} else if (length==1) {
+			__sync_fetch_and_add(&stats_create,1);
+		} else if (length==2) {
+			__sync_fetch_and_add(&stats_test,1);
+		}
+		// length==10 and length==11 - internal operations requested by replicator - do not increase stats
+	}
+#else
 	zassert(pthread_mutex_lock(&statslock));
 	if (newversion>0) {
 		if (length==0xFFFFFFFF) {
@@ -6187,6 +6310,7 @@ int hdd_chunkop(uint64_t chunkid,uint32_t version,uint32_t newversion,uint64_t c
 		// length==10 and length==11 - internal operations requested by replicator - do not increase stats
 	}
 	zassert(pthread_mutex_unlock(&statslock));
+#endif
 	if (newversion>0) {
 		if (length==0xFFFFFFFF) {
 			if (copychunkid==0) {

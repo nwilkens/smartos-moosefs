@@ -10,10 +10,11 @@ mfsstatsdump_SOURCES = \
 	../mfscommon/strerr.c ../mfscommon/strerr.h \
 	../mfscommon/mfslog.c ../mfscommon/mfslog.h \
 	../mfscommon/crc.c ../mfscommon/crc.h \
+	../mfscommon/crc_pclmul.c ../mfscommon/crc_pclmul.h \
 	../mfscommon/charts.c ../mfscommon/charts.h \
 	../mfscommon/idstr.h
 
-mfsstatsdump_CFLAGS =
+mfsstatsdump_CFLAGS = $(PCLMUL_CFLAGS)
 mfsstatsdump_CPPFLAGS = -I$(top_srcdir)/mfscommon
 mfsstatsdump_LDFLAGS = $(ZLIB_LIBS)
 
@@ -58,6 +59,7 @@ mfsmaster_SOURCES = \
 	../mfscommon/random.c ../mfscommon/random.h \
 	../mfscommon/md5.c ../mfscommon/md5.h \
 	../mfscommon/crc.c ../mfscommon/crc.h \
+	../mfscommon/crc_pclmul.c ../mfscommon/crc_pclmul.h \
 	../mfscommon/sockets.c ../mfscommon/sockets.h \
 	../mfscommon/charts.c ../mfscommon/charts.h \
 	../mfscommon/strerr.c ../mfscommon/strerr.h \
@@ -87,7 +89,7 @@ mfsmaster_SOURCES = \
 	../mfscommon/MFSCommunication.h
 
 
-mfsmaster_CFLAGS = $(DYNLINKER_FLAGS)
+mfsmaster_CFLAGS = $(DYNLINKER_FLAGS) $(PCLMUL_CFLAGS)
 mfsmaster_CPPFLAGS = $(AM_CPPFLAGS) -DMFSMAXFILES=16384 -DAPPNAME=mfsmaster
 mfsmaster_LDFLAGS = $(ZLIB_LIBS)
 

@@ -15,7 +15,7 @@ AM_CFLAGS =
 AM_LDFLAGS =
 
 mfsmount_LDADD = $(PTHREAD_LIBS) $(FUSE_LIBS)
-mfsmount_CFLAGS = $(PTHREAD_CFLAGS) -D_USE_PTHREADS $(FUSE_CFLAGS) -DAPPNAME=mfsmount -DMFSMOUNT=1
+mfsmount_CFLAGS = $(PTHREAD_CFLAGS) -D_USE_PTHREADS $(FUSE_CFLAGS) -DAPPNAME=mfsmount -DMFSMOUNT=1 $(PCLMUL_CFLAGS)
 mfsmount_CPPFLAGS = $(PTHREAD_CPPFLAGS) -I$(top_srcdir)/mfscommon
 
 mfsmount_SOURCES = \
@@ -54,6 +54,7 @@ mfsmount_SOURCES = \
 	../mfscommon/delayrun.c ../mfscommon/delayrun.h \
 	../mfscommon/pcqueue.c ../mfscommon/pcqueue.h \
 	../mfscommon/crc.c ../mfscommon/crc.h \
+	../mfscommon/crc_pclmul.c ../mfscommon/crc_pclmul.h \
 	../mfscommon/md5.c ../mfscommon/md5.h \
 	../mfscommon/sockets.c ../mfscommon/sockets.h \
 	../mfscommon/conncache.c ../mfscommon/conncache.h \
@@ -72,7 +73,7 @@ mfsmount_SOURCES = \
 
 
 libmfsio_la_LIBADD = $(PTHREAD_LIBS)
-libmfsio_la_CFLAGS = $(PTHREAD_CFLAGS) -D_USE_PTHREADS -DLIBMFSIO=1
+libmfsio_la_CFLAGS = $(PTHREAD_CFLAGS) -D_USE_PTHREADS -DLIBMFSIO=1 $(PCLMUL_CFLAGS)
 libmfsio_la_CPPFLAGS = $(PTHREAD_CPPFLAGS) -I$(top_srcdir)/mfscommon
 libmfsio_la_LDFLAGS = -version-info 1:0:0
 libmfsio_la_SOURCES = \
@@ -96,6 +97,7 @@ libmfsio_la_SOURCES = \
 	../mfscommon/delayrun.c ../mfscommon/delayrun.h \
 	../mfscommon/pcqueue.c ../mfscommon/pcqueue.h \
 	../mfscommon/crc.c ../mfscommon/crc.h \
+	../mfscommon/crc_pclmul.c ../mfscommon/crc_pclmul.h \
 	../mfscommon/md5.c ../mfscommon/md5.h \
 	../mfscommon/sockets.c ../mfscommon/sockets.h \
 	../mfscommon/conncache.c ../mfscommon/conncache.h \

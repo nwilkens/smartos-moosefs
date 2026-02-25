@@ -24,6 +24,7 @@
 #include <inttypes.h>
 #include <stdlib.h>
 #include "MFSCommunication.h"
+#include "crc_pclmul.h"
 
 #ifndef CRC_POLY
 #define CRC_POLY 0xEDB88320
@@ -74,9 +75,11 @@ static inline uint32_t swap(uint32_t x) {
 }
 #endif
 
-// #define CRC_PREFETCH 1
+#if defined(__GNUC__) && !defined(__clang__)
+#define CRC_PREFETCH 1
+#endif
 
-uint32_t mycrc32(uint32_t crc,const void* data,uint32_t leng) {
+static uint32_t mycrc32_software(uint32_t crc,const void* data,uint32_t leng) {
 	const uint32_t *data4;
 	const uint8_t *data1;
 	uint32_t d0,d1,d2,d3;
@@ -161,6 +164,44 @@ uint32_t mycrc32(uint32_t crc,const void* data,uint32_t leng) {
 	return ~crc;
 }
 
+static uint32_t mycrc32_hardware(uint32_t crc, const void *data, uint32_t leng) {
+	const uint8_t *src = (const uint8_t *)data;
+	uint32_t hw_leng;
+	uint32_t raw_crc;
+
+	if (leng < 64) {
+		return mycrc32_software(crc, data, leng);
+	}
+
+	/* process multiples of 16 via hw (minimum 64) */
+	hw_leng = leng & ~(uint32_t)15;
+	if (hw_leng < 64) {
+		return mycrc32_software(crc, data, leng);
+	}
+
+	/*
+	 * mycrc32_pclmul operates on inverted CRC state (same as Chromium zlib):
+	 * it expects ~crc as input and returns ~result.
+	 * mycrc32_software does its own ~crc/~result internally.
+	 * So we invert before/after the hw call, and pass the result
+	 * to software as a normal CRC.
+	 */
+	raw_crc = mycrc32_pclmul(~crc, src, hw_leng);
+	crc = ~raw_crc;
+
+	/* remaining bytes (0-15) handled by software */
+	if (leng > hw_leng) {
+		crc = mycrc32_software(crc, src + hw_leng, leng - hw_leng);
+	}
+	return crc;
+}
+
+static uint32_t (*mycrc32_fn)(uint32_t crc, const void *data, uint32_t leng) = mycrc32_software;
+
+uint32_t mycrc32(uint32_t crc, const void *data, uint32_t leng) {
+	return mycrc32_fn(crc, data, leng);
+}
+
 /* crc_combine */
 
 static uint32_t crc_combine_table[32][4][256];
@@ -237,4 +278,7 @@ uint32_t mycrc32_combine(uint32_t crc1, uint32_t crc2, uint32_t leng2) {
 void mycrc32_init(void) {
 	crc_generate_main_tables();
 	crc_generate_combine_tables();
+	if (mycrc32_hw_available()) {
+		mycrc32_fn = mycrc32_hardware;
+	}
 }

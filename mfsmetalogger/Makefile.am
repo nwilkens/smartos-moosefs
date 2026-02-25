@@ -9,6 +9,7 @@ mfsmetalogger_SOURCES = \
 	../mfscommon/clocks.c ../mfscommon/clocks.h \
 	../mfscommon/cfg.c ../mfscommon/cfg.h \
 	../mfscommon/crc.c ../mfscommon/crc.h \
+	../mfscommon/crc_pclmul.c ../mfscommon/crc_pclmul.h \
 	../mfscommon/md5.c ../mfscommon/md5.h \
 	../mfscommon/sockets.c ../mfscommon/sockets.h \
 	../mfscommon/strerr.c ../mfscommon/strerr.h \
@@ -22,7 +23,7 @@ mfsmetalogger_SOURCES = \
 
 mfsmetalogger_CPPFLAGS = -I$(top_srcdir)/mfscommon -DAPPNAME=mfsmetalogger
 mfsmetalogger_LDFLAGS =
-mfsmetalogger_CFLAGS =
+mfsmetalogger_CFLAGS = $(PCLMUL_CFLAGS)
 
 
 distclean-local: distclean-am

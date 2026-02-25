@@ -44,6 +44,9 @@ typedef struct _queue {
 	uint32_t freewaiting;
 	uint32_t fullwaiting;
 	uint32_t closed;
+	qentry *freelist;
+	uint32_t freelist_count;
+	uint32_t freelist_max;
 	pthread_cond_t waitfree,waitfull;
 	pthread_mutex_t lock;
 } queue;
@@ -60,6 +63,9 @@ void* queue_new(uint32_t size) {
 	q->freewaiting = 0;
 	q->fullwaiting = 0;
 	q->closed = 0;
+	q->freelist = NULL;
+	q->freelist_count = 0;
+	q->freelist_max = 256;
 	if (size) {
 		zassert(pthread_cond_init(&(q->waitfull),NULL));
 	}
@@ -77,6 +83,10 @@ void queue_delete(void *que) {
 	for (qe = q->head ; qe ; qe = qen) {
 		qen = qe->next;
 		free(qe->data);
+		free(qe);
+	}
+	for (qe = q->freelist ; qe ; qe = qen) {
+		qen = qe->next;
 		free(qe);
 	}
 	zassert(pthread_mutex_unlock(&(q->lock)));
@@ -146,18 +156,10 @@ uint32_t queue_sizeleft(void *que) {
 int queue_put(void *que,uint32_t id,uint32_t op,uint8_t *data,uint32_t leng) {
 	queue *q = (queue*)que;
 	qentry *qe;
-	qe = malloc(sizeof(qentry));
-	passert(qe);
-	qe->id = id;
-	qe->op = op;
-	qe->data = data;
-	qe->leng = leng;
-	qe->next = NULL;
 	zassert(pthread_mutex_lock(&(q->lock)));
 	if (q->maxsize) {
 		if (leng>q->maxsize) {
 			zassert(pthread_mutex_unlock(&(q->lock)));
-			free(qe);
 			errno = EDEADLK;
 			return -1;
 		}
@@ -167,11 +169,23 @@ int queue_put(void *que,uint32_t id,uint32_t op,uint8_t *data,uint32_t leng) {
 		}
 		if (q->closed) {
 			zassert(pthread_mutex_unlock(&(q->lock)));
-			free(qe);
 			errno = EIO;
 			return -1;
 		}
 	}
+	if (q->freelist) {
+		qe = q->freelist;
+		q->freelist = qe->next;
+		q->freelist_count--;
+	} else {
+		qe = malloc(sizeof(qentry));
+		passert(qe);
+	}
+	qe->id = id;
+	qe->op = op;
+	qe->data = data;
+	qe->leng = leng;
+	qe->next = NULL;
 	q->elements++;
 	q->size += leng;
 	*(q->tail) = qe;
@@ -200,8 +214,14 @@ int queue_tryput(void *que,uint32_t id,uint32_t op,uint8_t *data,uint32_t leng) 
 			return -1;
 		}
 	}
-	qe = malloc(sizeof(qentry));
-	passert(qe);
+	if (q->freelist) {
+		qe = q->freelist;
+		q->freelist = qe->next;
+		q->freelist_count--;
+	} else {
+		qe = malloc(sizeof(qentry));
+		passert(qe);
+	}
 	qe->id = id;
 	qe->op = op;
 	qe->data = data;
@@ -251,24 +271,36 @@ int queue_get(void *que,uint32_t *id,uint32_t *op,uint8_t **data,uint32_t *leng)
 	}
 	q->elements--;
 	q->size -= qe->leng;
-	if (q->fullwaiting>0) {
-		zassert(pthread_cond_signal(&(q->waitfull)));
-		q->fullwaiting--;
+	{
+		uint32_t _id = qe->id;
+		uint32_t _op = qe->op;
+		uint8_t *_data = qe->data;
+		uint32_t _leng = qe->leng;
+		if (q->freelist_count < q->freelist_max) {
+			qe->next = q->freelist;
+			q->freelist = qe;
+			q->freelist_count++;
+		} else {
+			free(qe);
+		}
+		if (q->fullwaiting>0) {
+			zassert(pthread_cond_signal(&(q->waitfull)));
+			q->fullwaiting--;
+		}
+		zassert(pthread_mutex_unlock(&(q->lock)));
+		if (id) {
+			*id = _id;
+		}
+		if (op) {
+			*op = _op;
+		}
+		if (data) {
+			*data = _data;
+		}
+		if (leng) {
+			*leng = _leng;
+		}
 	}
-	zassert(pthread_mutex_unlock(&(q->lock)));
-	if (id) {
-		*id = qe->id;
-	}
-	if (op) {
-		*op = qe->op;
-	}
-	if (data) {
-		*data = qe->data;
-	}
-	if (leng) {
-		*leng = qe->leng;
-	}
-	free(qe);
 	return 0;
 }
 
@@ -300,23 +332,35 @@ int queue_tryget(void *que,uint32_t *id,uint32_t *op,uint8_t **data,uint32_t *le
 	}
 	q->elements--;
 	q->size -= qe->leng;
-	if (q->fullwaiting>0) {
-		zassert(pthread_cond_signal(&(q->waitfull)));
-		q->fullwaiting--;
+	{
+		uint32_t _id = qe->id;
+		uint32_t _op = qe->op;
+		uint8_t *_data = qe->data;
+		uint32_t _leng = qe->leng;
+		if (q->freelist_count < q->freelist_max) {
+			qe->next = q->freelist;
+			q->freelist = qe;
+			q->freelist_count++;
+		} else {
+			free(qe);
+		}
+		if (q->fullwaiting>0) {
+			zassert(pthread_cond_signal(&(q->waitfull)));
+			q->fullwaiting--;
+		}
+		zassert(pthread_mutex_unlock(&(q->lock)));
+		if (id) {
+			*id = _id;
+		}
+		if (op) {
+			*op = _op;
+		}
+		if (data) {
+			*data = _data;
+		}
+		if (leng) {
+			*leng = _leng;
+		}
 	}
-	zassert(pthread_mutex_unlock(&(q->lock)));
-	if (id) {
-		*id = qe->id;
-	}
-	if (op) {
-		*op = qe->op;
-	}
-	if (data) {
-		*data = qe->data;
-	}
-	if (leng) {
-		*leng = qe->leng;
-	}
-	free(qe);
 	return 0;
 }

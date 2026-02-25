@@ -62,6 +62,9 @@ AC_PROG_LIBTOOL
 AC_ARG_ENABLE([externalcflags], [AS_HELP_STRING([--enable-externalcflags], [Build with default CFLAGS])], [ enable_externalcflags=yes ])
 AC_ARG_ENABLE([gperftools], [AS_HELP_STRING([--enable-gperftools], [Build with google perftools on (debug only)])], [ enable_gperftools=yes ])
 AC_ARG_ENABLE([debug], [AS_HELP_STRING([--enable-debug], [Build version without optimizations])], [ enable_debug=yes ])
+AC_ARG_ENABLE([native], [AS_HELP_STRING([--enable-native], [Build with -march=native (non-portable, for local deployment)])], [ enable_native=yes ])
+AC_ARG_ENABLE([o3], [AS_HELP_STRING([--enable-o3], [Build with -O3 instead of -O2])], [ enable_o3=yes ])
+AC_ARG_ENABLE([lto], [AS_HELP_STRING([--enable-lto], [Build with link-time optimization (-flto)])], [ enable_lto=yes ])
 
 if test "X$MFS_FORCE_DEBUG" = "XYES"; then
 	enable_debug=yes
@@ -94,6 +97,19 @@ if test "$GCC" = "yes"; then
 		CPPFLAGS="$CPPFLAGS -DGPERFTOOLS"
 		LDFLAGS="$LDFLAGS -L/opt/local/lib -lprofiler"
 	fi
+fi
+
+if test "$enable_native" = "yes"; then
+	CFLAGS="$CFLAGS -march=native"
+fi
+
+if test "$enable_o3" = "yes"; then
+	CFLAGS=$(echo "$CFLAGS" | sed 's/-O2/-O3/g')
+fi
+
+if test "$enable_lto" = "yes"; then
+	CFLAGS="$CFLAGS -flto"
+	LDFLAGS="$LDFLAGS -flto"
 fi
 
 root_sbindir="xxx"
@@ -423,6 +439,37 @@ if test "$ac_have___sync_bool_compare_and_swap" = "yes" ; then
 	AC_DEFINE([HAVE___SYNC_BOOL_COMPARE_AND_SWAP], [1], [have __sync_bool_compare_and_swap intrinsic])
 fi
 AC_MSG_RESULT($ac_have___sync_bool_compare_and_swap)
+
+AC_MSG_CHECKING([for PCLMULQDQ support])
+saved_cflags_pclmul="$CFLAGS"
+CFLAGS="$CFLAGS -mpclmul -msse4.1"
+AC_LINK_IFELSE([AC_LANG_PROGRAM([[
+#include <wmmintrin.h>
+#include <smmintrin.h>
+]],[[
+__m128i a,b;
+a = _mm_clmulepi64_si128(a,b,0x00);
+]])],
+[ac_have_pclmulqdq=yes], [ac_have_pclmulqdq=no])
+CFLAGS="$saved_cflags_pclmul"
+if test "$ac_have_pclmulqdq" = "yes" ; then
+	AC_DEFINE([HAVE_PCLMULQDQ], [1], [have PCLMULQDQ instruction support])
+	PCLMUL_CFLAGS="-mpclmul -msse4.1"
+else
+	PCLMUL_CFLAGS=""
+fi
+AC_SUBST([PCLMUL_CFLAGS])
+AC_MSG_RESULT($ac_have_pclmulqdq)
+AM_CONDITIONAL([WITH_PCLMUL], [test "$ac_have_pclmulqdq" = "yes"])
+
+AC_MSG_CHECKING([for __thread TLS support])
+AC_LINK_IFELSE([AC_LANG_PROGRAM([[#include <sys/types.h>]],
+               [[static __thread int tls_var = 0; tls_var = 1; ]])],
+               [ac_have___thread=yes], [ac_have___thread=no])
+if test "$ac_have___thread" = "yes" ; then
+	AC_DEFINE([HAVE___THREAD], [1], [have __thread TLS support])
+fi
+AC_MSG_RESULT($ac_have___thread)
 
 if test "$ac_have_atomics" != "no" ; then
 	AC_MSG_CHECKING([for _Atomic support])
