@@ -1052,11 +1052,15 @@ void meta_store_task(void) {
 		t = curtime;
 		memset(&lt,0,sizeof(struct tm));
 		localtime_r(&t, &lt);
+#ifdef HAVE_STRUCT_TM_TM_GMTOFF
 		if (lt.tm_gmtoff >= 0) {
 			offset = (MetaSaveOffset + (24 * 60) - (lt.tm_gmtoff / 60)) % (24 * 60);
 		} else {
 			offset = (MetaSaveOffset + (lt.tm_gmtoff / 60)) % (24 * 60);
 		}
+#else
+		offset = MetaSaveOffset;
+#endif
 	} else {
 		offset = MetaSaveOffset;
 	}
