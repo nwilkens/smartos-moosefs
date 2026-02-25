@@ -82,6 +82,9 @@ void hdd_precache_data(uint64_t chunkid,uint32_t offset,uint32_t size);
 int hdd_open(uint64_t chunkid,uint32_t version);
 int hdd_close(uint64_t chunkid,uint8_t forcefsync);
 int hdd_read(uint64_t chunkid,uint32_t version,uint16_t blocknum,uint8_t *buffer,uint32_t offset,uint32_t size,uint8_t *crcbuff);
+/* read up to blockcount consecutive full blocks starting at firstblock; data_ptrs[i] must have MFSBLOCKSIZE bytes, crc_ptrs[i] must have 4 bytes */
+#define HDD_READBLOCK_BATCH_MAX 16
+int hdd_read_multiblock(uint64_t chunkid,uint32_t version,uint16_t firstblock,uint16_t blockcount,uint8_t *data_ptrs[],uint8_t *crc_ptrs[]);
 int hdd_write(uint64_t chunkid,uint32_t version,uint16_t blocknum,const uint8_t *buffer,uint32_t offset,uint32_t size,const uint8_t *crcbuff);
 
 /* chunk info */

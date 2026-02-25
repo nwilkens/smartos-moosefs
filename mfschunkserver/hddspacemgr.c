@@ -60,6 +60,9 @@
 #include "sockets.h"
 #include "bgjobs.h"
 #include "ionice.h"
+#ifdef HAVE_PREADV
+#include <sys/uio.h>
+#endif
 
 #define PRESERVE_BLOCK 1
 
@@ -67,6 +70,10 @@
 
 #if defined(HAVE_PREAD) && defined(HAVE_PWRITE)
 #define USE_PIO 1
+#endif
+
+#if defined(USE_PIO) && defined(HAVE_PREADV)
+#define USE_PIOV 1
 #endif
 
 #ifdef EWOULDBLOCK
@@ -87,7 +94,7 @@
 /* system every DELAYEDSTEP seconds searches opened/crc_loaded chunk list for chunks to be closed/free crc */
 #define DELAYEDUSTEP 100000
 
-#define OPEN_DELAY 0.5
+#define OPEN_DELAY 5.0
 #define CRC_DELAY 100
 
 #ifdef PRESERVE_BLOCK
@@ -3424,6 +3431,12 @@ void hdd_delayed_ops(void) {
 						hdd_generate_filename(fname,c); // preserves errno !!!
 						mfs_log(MFSLOG_SYSLOG_STDERR,MFSLOG_WARNING,"hdd_delayed_ops: file:%s - fsync (via fcntl) error",fname);
 					}
+#elif defined(HAVE_FDATASYNC)
+					if (fdatasync(c->fd)<0) {
+						hdd_error_occurred(c,1); // uses and preserves errno !!!
+						hdd_generate_filename(fname,c); // preserves errno !!!
+						mfs_log(MFSLOG_SYSLOG_STDERR,MFSLOG_WARNING,"hdd_delayed_ops: file:%s - fdatasync error",fname);
+					}
 #else
 					if (fsync(c->fd)<0) {
 						hdd_error_occurred(c,1); // uses and preserves errno !!!
@@ -3733,6 +3746,12 @@ int hdd_close(uint64_t chunkid,uint8_t forcefsync) {
 			hdd_generate_filename(fname,c); // preserves errno !!!
 			mfs_log(MFSLOG_SYSLOG_STDERR,MFSLOG_WARNING,"hdd_close: file:%s - fsync (via fcntl) error",fname);
 		}
+#elif defined(HAVE_FDATASYNC)
+		if (fdatasync(c->fd)<0) {
+			hdd_error_occurred(c,1); // uses and preserves errno !!!
+			hdd_generate_filename(fname,c); // preserves errno !!!
+			mfs_log(MFSLOG_SYSLOG_STDERR,MFSLOG_WARNING,"hdd_close: file:%s - fdatasync error",fname);
+		}
 #else
 		if (fsync(c->fd)<0) {
 			hdd_error_occurred(c,1); // uses and preserves errno !!!
@@ -3936,6 +3955,134 @@ int hdd_read(uint64_t chunkid,uint32_t version,uint16_t blocknum,uint8_t *buffer
 #endif /* PRESERVE_BLOCK */
 	}
 	put32bit(&crcbuff,crc);
+	hdd_chunk_release(c);
+	return MFS_STATUS_OK;
+}
+
+/* read multiple consecutive full blocks in one operation - reduces syscall and lock overhead for sequential reads */
+int hdd_read_multiblock(uint64_t chunkid,uint32_t version,uint16_t firstblock,uint16_t blockcount,uint8_t *data_ptrs[],uint8_t *crc_ptrs[]) {
+	chunk *c;
+	const uint8_t *rcrcptr;
+	uint32_t crc,bcrc;
+	uint64_t ts,te;
+	uint16_t i;
+	uint16_t ondisk; /* number of requested blocks that exist on disk */
+	char fname[PATH_MAX];
+
+	if (blockcount==0) {
+		return MFS_STATUS_OK;
+	}
+	if (hdd_chunk_find(chunkid,&c)==2) {
+		return MFS_ERROR_NOTDONE;
+	}
+	if (c==NULL) {
+		return MFS_ERROR_NOCHUNK;
+	}
+	if (c->version!=version && version>0) {
+		hdd_chunk_release(c);
+		return MFS_ERROR_WRONGVERSION;
+	}
+	if (firstblock+blockcount>MFSBLOCKSINCHUNK) {
+		hdd_chunk_release(c);
+		return MFS_ERROR_BNUMTOOBIG;
+	}
+
+	/* determine how many of the requested blocks exist on disk */
+	if (firstblock>=c->blocks) {
+		ondisk = 0;
+	} else if (firstblock+blockcount>c->blocks) {
+		ondisk = c->blocks - firstblock;
+	} else {
+		ondisk = blockcount;
+	}
+
+	/* fill zero blocks (beyond end of chunk data) */
+	for (i=ondisk ; i<blockcount ; i++) {
+		uint8_t *cp;
+		memset(data_ptrs[i],0,MFSBLOCKSIZE);
+		cp = crc_ptrs[i];
+		crc = emptyblockcrc;
+		put32bit(&cp,crc);
+	}
+
+	if (ondisk==0) {
+		hdd_chunk_release(c);
+		return MFS_STATUS_OK;
+	}
+
+	/* read blocks from disk */
+#ifdef USE_PIOV
+	{
+		struct iovec iov[ondisk];
+		off_t base_offset;
+		ssize_t total_expected;
+		ssize_t total_read;
+
+		for (i=0 ; i<ondisk ; i++) {
+			iov[i].iov_base = (void*)data_ptrs[i];
+			iov[i].iov_len = MFSBLOCKSIZE;
+		}
+		total_expected = (ssize_t)ondisk * MFSBLOCKSIZE;
+		base_offset = c->hdrsize + CHUNKCRCSIZE + (((uint32_t)firstblock)<<MFSBLOCKBITS);
+
+		ts = monotonic_nseconds();
+		total_read = preadv(c->fd,iov,ondisk,base_offset);
+		te = monotonic_nseconds();
+		hdd_stats_dataread(c->owner,total_expected,te-ts);
+
+		if (total_read!=total_expected) {
+			hdd_error_occurred(c,1);
+			hdd_generate_filename(fname,c);
+			mfs_log(MFSLOG_SYSLOG_STDERR,MFSLOG_WARNING,"read_multiblock: file:%s - preadv error (blocks %"PRIu16"..%"PRIu16", read %zd of %zd)",fname,firstblock,(uint16_t)(firstblock+ondisk-1),total_read,total_expected);
+			hdd_chunk_release(c);
+			return MFS_ERROR_IO;
+		}
+	}
+#else /* USE_PIOV */
+	{
+		int ret;
+		int error;
+		for (i=0 ; i<ondisk ; i++) {
+			ts = monotonic_nseconds();
+			ret = mypread(c->fd,data_ptrs[i],MFSBLOCKSIZE,c->hdrsize+CHUNKCRCSIZE+(((uint32_t)(firstblock+i))<<MFSBLOCKBITS));
+			error = errno;
+			te = monotonic_nseconds();
+			hdd_stats_dataread(c->owner,MFSBLOCKSIZE,te-ts);
+			if (ret!=MFSBLOCKSIZE) {
+				errno = error;
+				hdd_error_occurred(c,1);
+				hdd_generate_filename(fname,c);
+				mfs_log(MFSLOG_SYSLOG_STDERR,MFSLOG_WARNING,"read_multiblock: file:%s ; block:%"PRIu16" - read error",fname,(uint16_t)(firstblock+i));
+				hdd_chunk_release(c);
+				return MFS_ERROR_IO;
+			}
+		}
+	}
+#endif /* USE_PIOV */
+
+	/* verify CRC for each block read from disk */
+	for (i=0 ; i<ondisk ; i++) {
+		uint8_t *cp;
+		crc = mycrc32(0,data_ptrs[i],MFSBLOCKSIZE);
+		rcrcptr = (c->crc)+(4*(firstblock+i));
+		bcrc = get32bit(&rcrcptr);
+		if (bcrc!=crc) {
+			hdd_error_occurred(c,1);
+			hdd_generate_filename(fname,c);
+			mfs_log(MFSLOG_SYSLOG,MFSLOG_WARNING,"read_multiblock: file:%s ; block:%"PRIu16" - crc error (data crc: %08"PRIX32" ; stored crc: %08"PRIX32")",fname,(uint16_t)(firstblock+i),crc,bcrc);
+			hdd_chunk_release(c);
+			return MFS_ERROR_CRC;
+		}
+		cp = crc_ptrs[i];
+		put32bit(&cp,crc);
+	}
+
+#ifdef PRESERVE_BLOCK
+	/* update preserve-block cache with last block read */
+	memcpy(c->block,data_ptrs[ondisk-1],MFSBLOCKSIZE);
+	c->blockno = firstblock+ondisk-1;
+#endif
+
 	hdd_chunk_release(c);
 	return MFS_STATUS_OK;
 }
@@ -9428,9 +9575,17 @@ int hdd_init(void) {
 	fprintf(stderr,"SYNC_FETCH_AND_OP,");
 #endif
 #ifdef USE_PIO
-	fprintf(stderr,"PREAD/PWRITE\n");
+	fprintf(stderr,"PREAD/PWRITE,");
 #else
-	fprintf(stderr,"SEEK+READ/WRITE\n");
+	fprintf(stderr,"SEEK+READ/WRITE,");
+#endif
+#ifdef USE_PIOV
+	fprintf(stderr,"PREADV,");
+#endif
+#ifdef HAVE_FDATASYNC
+	fprintf(stderr,"FDATASYNC\n");
+#else
+	fprintf(stderr,"FSYNC\n");
 #endif
 #endif
 

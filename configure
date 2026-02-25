@@ -723,6 +723,9 @@ PKG_CONFIG_LIBDIR
 PKG_CONFIG_PATH
 PKG_CONFIG
 KILL
+WITH_PCLMUL_FALSE
+WITH_PCLMUL_TRUE
+PCLMUL_CFLAGS
 LIBOBJS
 MATH_LIBS
 PTHREAD_CFLAGS
@@ -877,6 +880,9 @@ enable_libtool_lock
 enable_externalcflags
 enable_gperftools
 enable_debug
+enable_native
+enable_o3
+enable_lto
 enable_largefile
 enable_all
 enable_mfsmaster
@@ -1568,6 +1574,10 @@ Optional Features:
   --enable-externalcflags Build with default CFLAGS
   --enable-gperftools     Build with google perftools on (debug only)
   --enable-debug          Build version without optimizations
+  --enable-native         Build with -march=native (non-portable, for local
+                          deployment)
+  --enable-o3             Build with -O3 instead of -O2
+  --enable-lto            Build with link-time optimization (-flto)
   --disable-largefile     omit support for large files
   --disable-all           By default do not build anything except for manually
                           enabled modules
@@ -15251,6 +15261,24 @@ then :
   enableval=$enable_debug;  enable_debug=yes
 fi
 
+# Check whether --enable-native was given.
+if test ${enable_native+y}
+then :
+  enableval=$enable_native;  enable_native=yes
+fi
+
+# Check whether --enable-o3 was given.
+if test ${enable_o3+y}
+then :
+  enableval=$enable_o3;  enable_o3=yes
+fi
+
+# Check whether --enable-lto was given.
+if test ${enable_lto+y}
+then :
+  enableval=$enable_lto;  enable_lto=yes
+fi
+
 
 if test "X$MFS_FORCE_DEBUG" = "XYES"; then
 	enable_debug=yes
@@ -15405,6 +15433,19 @@ if test "$GCC" = "yes"; then
 		CPPFLAGS="$CPPFLAGS -DGPERFTOOLS"
 		LDFLAGS="$LDFLAGS -L/opt/local/lib -lprofiler"
 	fi
+fi
+
+if test "$enable_native" = "yes"; then
+	CFLAGS="$CFLAGS -march=native"
+fi
+
+if test "$enable_o3" = "yes"; then
+	CFLAGS=$(echo "$CFLAGS" | sed 's/-O2/-O3/g')
+fi
+
+if test "$enable_lto" = "yes"; then
+	CFLAGS="$CFLAGS -flto"
+	LDFLAGS="$LDFLAGS -flto"
 fi
 
 root_sbindir="xxx"
@@ -18413,10 +18454,28 @@ then :
   printf "%s\n" "#define HAVE_WRITEV 1" >>confdefs.h
 
 fi
+ac_fn_c_check_func "$LINENO" "preadv" "ac_cv_func_preadv"
+if test "x$ac_cv_func_preadv" = xyes
+then :
+  printf "%s\n" "#define HAVE_PREADV 1" >>confdefs.h
+
+fi
+ac_fn_c_check_func "$LINENO" "pwritev" "ac_cv_func_pwritev"
+if test "x$ac_cv_func_pwritev" = xyes
+then :
+  printf "%s\n" "#define HAVE_PWRITEV 1" >>confdefs.h
+
+fi
 ac_fn_c_check_func "$LINENO" "posix_fadvise" "ac_cv_func_posix_fadvise"
 if test "x$ac_cv_func_posix_fadvise" = xyes
 then :
   printf "%s\n" "#define HAVE_POSIX_FADVISE 1" >>confdefs.h
+
+fi
+ac_fn_c_check_func "$LINENO" "fdatasync" "ac_cv_func_fdatasync"
+if test "x$ac_cv_func_fdatasync" = xyes
+then :
+  printf "%s\n" "#define HAVE_FDATASYNC 1" >>confdefs.h
 
 fi
 
@@ -18922,6 +18981,87 @@ printf "%s\n" "#define HAVE___SYNC_BOOL_COMPARE_AND_SWAP 1" >>confdefs.h
 fi
 { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ac_have___sync_bool_compare_and_swap" >&5
 printf "%s\n" "$ac_have___sync_bool_compare_and_swap" >&6; }
+
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for PCLMULQDQ support" >&5
+printf %s "checking for PCLMULQDQ support... " >&6; }
+saved_cflags_pclmul="$CFLAGS"
+CFLAGS="$CFLAGS -mpclmul -msse4.1"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+#include <wmmintrin.h>
+#include <smmintrin.h>
+
+int
+main (void)
+{
+
+__m128i a,b;
+a = _mm_clmulepi64_si128(a,b,0x00);
+
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"
+then :
+  ac_have_pclmulqdq=yes
+else case e in #(
+  e) ac_have_pclmulqdq=no ;;
+esac
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam \
+    conftest$ac_exeext conftest.$ac_ext
+CFLAGS="$saved_cflags_pclmul"
+if test "$ac_have_pclmulqdq" = "yes" ; then
+
+printf "%s\n" "#define HAVE_PCLMULQDQ 1" >>confdefs.h
+
+	PCLMUL_CFLAGS="-mpclmul -msse4.1"
+else
+	PCLMUL_CFLAGS=""
+fi
+
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ac_have_pclmulqdq" >&5
+printf "%s\n" "$ac_have_pclmulqdq" >&6; }
+ if test "$ac_have_pclmulqdq" = "yes"; then
+  WITH_PCLMUL_TRUE=
+  WITH_PCLMUL_FALSE='#'
+else
+  WITH_PCLMUL_TRUE='#'
+  WITH_PCLMUL_FALSE=
+fi
+
+
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for __thread TLS support" >&5
+printf %s "checking for __thread TLS support... " >&6; }
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+#include <sys/types.h>
+int
+main (void)
+{
+static __thread int tls_var = 0; tls_var = 1;
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"
+then :
+  ac_have___thread=yes
+else case e in #(
+  e) ac_have___thread=no ;;
+esac
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam \
+    conftest$ac_exeext conftest.$ac_ext
+if test "$ac_have___thread" = "yes" ; then
+
+printf "%s\n" "#define HAVE___THREAD 1" >>confdefs.h
+
+fi
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ac_have___thread" >&5
+printf "%s\n" "$ac_have___thread" >&6; }
 
 if test "$ac_have_atomics" != "no" ; then
 	{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for _Atomic support" >&5
@@ -20752,6 +20892,10 @@ then :
   enableval=$enable_year2038;
 fi
 
+if test -z "${WITH_PCLMUL_TRUE}" && test -z "${WITH_PCLMUL_FALSE}"; then
+  as_fn_error $? "conditional \"WITH_PCLMUL\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
 if test -z "${WITH_SYSTEMD_TRUE}" && test -z "${WITH_SYSTEMD_FALSE}"; then
   as_fn_error $? "conditional \"WITH_SYSTEMD\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5

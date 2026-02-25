@@ -431,6 +431,124 @@ uint8_t mainserv_read(int sock,const uint8_t *data,uint32_t length) {
 		} else {
 			blocksize = MFSBLOCKSIZE-blockoffset;
 		}
+
+		/* multi-block fast path: when aligned to block boundary and multiple full blocks remain, batch the disk reads */
+		if (blockoffset==0 && blocksize==MFSBLOCKSIZE && size>=MFSBLOCKSIZE) {
+			uint16_t bcount;
+			uint16_t fullblocks;
+			uint16_t bi;
+			uint8_t *batch_packets[HDD_READBLOCK_BATCH_MAX];
+			uint8_t *batch_data[HDD_READBLOCK_BATCH_MAX];
+			uint8_t *batch_crc[HDD_READBLOCK_BATCH_MAX];
+
+			/* how many consecutive full blocks can we batch? */
+			fullblocks = size >> MFSBLOCKBITS;
+			if (fullblocks > HDD_READBLOCK_BATCH_MAX) {
+				fullblocks = HDD_READBLOCK_BATCH_MAX;
+			}
+			/* if the last block in range is partial, don't include it */
+			if ((size & MFSBLOCKMASK) == 0) {
+				bcount = fullblocks;
+			} else if (fullblocks > 0) {
+				bcount = fullblocks; /* partial tail handled in next iteration */
+			} else {
+				bcount = 0;
+			}
+			if (bcount>=2) {
+				/* pre-allocate packets and set up buffer pointers */
+				for (bi=0 ; bi<bcount ; bi++) {
+					batch_packets[bi] = mainserv_create_packet(&wptr,CSTOCL_READ_DATA,8+2+2+4+4+MFSBLOCKSIZE);
+					put64bit(&wptr,chunkid);
+					put16bit(&wptr,(uint16_t)(blocknum+bi));
+					put16bit(&wptr,0);
+					put32bit(&wptr,MFSBLOCKSIZE);
+					batch_crc[bi] = wptr;	/* 4 bytes for CRC */
+					batch_data[bi] = wptr+4;	/* MFSBLOCKSIZE bytes for data */
+				}
+				/* batched disk read */
+				if (protover) {
+					mainserv_sock_nop_add(&sn);
+				}
+				status = hdd_read_multiblock(chunkid,version,blocknum,bcount,batch_data,batch_crc);
+				if (protover) {
+					mainserv_sock_nop_del(&sn);
+					if (sn.error) {
+						for (bi=0 ; bi<bcount ; bi++) {
+							free(batch_packets[bi]);
+						}
+						hdd_close(chunkid,0);
+						return 0;
+					}
+				}
+				if (status!=MFS_STATUS_OK) {
+					for (bi=0 ; bi<bcount ; bi++) {
+						free(batch_packets[bi]);
+					}
+					hdd_close(chunkid,0);
+					packet = mainserv_create_packet(&wptr,CSTOCL_READ_STATUS,8+1);
+					put64bit(&wptr,chunkid);
+					put8bit(&wptr,status);
+					ret = mainserv_send_and_free("read status",sock,packet,8+1);
+#ifdef HAVE___SYNC_FETCH_AND_OP
+					__sync_fetch_and_add(&stats_hlopr,1);
+#else
+					zassert(pthread_mutex_lock(&statslock));
+					stats_hlopr++;
+					zassert(pthread_mutex_unlock(&statslock));
+#endif
+					return ret;
+				}
+				/* send all batched packets */
+				for (bi=0 ; bi<bcount ; bi++) {
+					if (mainserv_send_and_free("read data",sock,batch_packets[bi],8+2+2+4+4+MFSBLOCKSIZE)==0) {
+						/* free remaining unsent packets */
+						for (bi=bi+1 ; bi<bcount ; bi++) {
+							free(batch_packets[bi]);
+						}
+						hdd_close(chunkid,0);
+						return 0;
+					}
+					/* check for client NOP between sends */
+					i = read(sock,hdr+rcvd,(8-rcvd));
+					if (i<0) {
+						if (ERRNO_ERROR) {
+							for (bi=bi+1 ; bi<bcount ; bi++) {
+								free(batch_packets[bi]);
+							}
+							hdd_close(chunkid,0);
+							return 0;
+						}
+					} else if (i==0) {
+						for (bi=bi+1 ; bi<bcount ; bi++) {
+							free(batch_packets[bi]);
+						}
+						hdd_close(chunkid,0);
+						return 0;
+					} else {
+						rcvd += i;
+						if (rcvd==8) {
+							rptr = hdr;
+							cmd = get32bit(&rptr);
+							leng = get32bit(&rptr);
+							if (cmd==ANTOAN_NOP && leng==0) {
+								rcvd=0;
+							} else {
+								for (bi=bi+1 ; bi<bcount ; bi++) {
+									free(batch_packets[bi]);
+								}
+								hdd_close(chunkid,0);
+								return 0;
+							}
+						}
+					}
+				}
+				offset += (uint32_t)bcount * MFSBLOCKSIZE;
+				size -= (uint32_t)bcount * MFSBLOCKSIZE;
+				continue;
+			}
+		}
+
+		/* single-block path: handles partial blocks and batches of 1 */
 		packet = mainserv_create_packet(&wptr,CSTOCL_READ_DATA,8+2+2+4+4+blocksize);
 		put64bit(&wptr,chunkid);
 		put16bit(&wptr,blocknum);

@@ -277,7 +277,7 @@ AC_CHECK_HEADERS([sys/file.h])
 AC_CHECK_HEADERS([poll.h], [AC_CHECK_FUNCS([poll])])
 
 # optional I/O functions
-AC_CHECK_FUNCS([pread pwrite readv writev posix_fadvise])
+AC_CHECK_FUNCS([pread pwrite readv writev preadv pwritev posix_fadvise fdatasync])
 
 # optional sleep function
 AC_CHECK_FUNCS([nanosleep])

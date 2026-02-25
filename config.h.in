@@ -125,6 +125,9 @@
 /* Define to 1 if you have the <fcntl.h> header file. */
 #undef HAVE_FCNTL_H
 
+/* Define to 1 if you have the 'fdatasync' function. */
+#undef HAVE_FDATASYNC
+
 /* Define to 1 if you have the 'fork' function. */
 #undef HAVE_FORK
 
@@ -249,6 +252,9 @@
 /* Define to 1 if you have the <pcap.h> header file. */
 #undef HAVE_PCAP_H
 
+/* have PCLMULQDQ instruction support */
+#undef HAVE_PCLMULQDQ
+
 /* Define to 1 if you have the 'perror' function. */
 #undef HAVE_PERROR
 
@@ -267,6 +273,9 @@
 /* Define to 1 if you have the 'pread' function. */
 #undef HAVE_PREAD
 
+/* Define to 1 if you have the 'preadv' function. */
+#undef HAVE_PREADV
+
 /* Define if you have POSIX threads libraries and header files. */
 #undef HAVE_PTHREAD
 
@@ -275,6 +284,9 @@
 
 /* Define to 1 if you have the 'pwrite' function. */
 #undef HAVE_PWRITE
+
+/* Define to 1 if you have the 'pwritev' function. */
+#undef HAVE_PWRITEV
 
 /* Define to 1 if you have the 'readv' function. */
 #undef HAVE_READV
@@ -453,6 +465,9 @@
 
 /* have __sync_OP_and_fetch intrinsics */
 #undef HAVE___SYNC_OP_AND_FETCH
+
+/* have __thread TLS support */
+#undef HAVE___THREAD
 
 /* ioctl operation argument is of type int */
 #undef IOCTL_INTOP
