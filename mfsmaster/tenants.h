@@ -26,6 +26,9 @@ int tenants_init(void);
 void tenants_reload(void);
 void tenants_term(void);
 
+// Returns 1 if any tenants are defined, 0 otherwise
+int tenants_are_defined(void);
+
 // Returns tenant pointer (opaque) or NULL if not found
 void* tenants_find(const char *tenant_id, uint32_t tenant_id_len);
 

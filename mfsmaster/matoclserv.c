@@ -1760,6 +1760,11 @@ void matoclserv_fuse_register(matoclserventry *eptr,const uint8_t *data,uint32_t
 			memcpy(wptr,eptr->passwordrnd,32);
 			return;
 		case REGISTER_NEWSESSION:
+			if (tenants_are_defined()) {
+				mfs_log(MFSLOG_SYSLOG,MFSLOG_WARNING,"CLTOMA_FUSE_REGISTER - non-tenant session rejected (ip:%s) - tenant auth required",eptr->strip);
+				eptr->mode = KILL;
+				return;
+			}
 			if (length<77) {
 				mfs_log(MFSLOG_SYSLOG,MFSLOG_WARNING,"CLTOMA_FUSE_REGISTER/ACL.2 - wrong size (%"PRIu32"/>=77)",length);
 				eptr->mode = KILL;

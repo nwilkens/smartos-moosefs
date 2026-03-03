@@ -401,6 +401,10 @@ int tenants_init(void) {
 	return 0;
 }
 
+int tenants_are_defined(void) {
+	return (tenants_head!=NULL) ? 1 : 0;
+}
+
 void* tenants_find(const char *tenant_id, uint32_t tenant_id_len) {
 	tenant *t;
 	if (tenant_id==NULL || tenant_id_len==0 || tenant_id_len>TENANT_ID_MAX) {
@@ -447,6 +451,9 @@ uint32_t tenants_get_gid(void *vtenant) {
 
 const uint8_t* tenants_get_rootpath(void *vtenant) {
 	tenant *t = (tenant*)vtenant;
+	if (t->rootpath==NULL) {
+		return (const uint8_t*)"";
+	}
 	return t->rootpath;
 }
 
