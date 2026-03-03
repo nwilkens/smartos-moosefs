@@ -75,6 +75,8 @@
 #include "multilan.h"
 #include "chunktoken.h"
 #include "sha256.h"
+#include "tenants.h"
+#include "audit.h"
 
 #define MaxPacketSize CLTOMA_MAXPACKETSIZE
 
@@ -1948,6 +1950,211 @@ void matoclserv_fuse_register(matoclserventry *eptr,const uint8_t *data,uint32_t
 				}
 			}
 			return;
+		case REGISTER_TENANT_SESSION:
+			// minimum: rcode(1) + version(4) + ileng(4) + tenant_id_len(4) + hmac_response(32) = 45 bytes after blob
+			if (length<65+44) {
+				mfs_log(MFSLOG_SYSLOG,MFSLOG_WARNING,"CLTOMA_FUSE_REGISTER/ACL.10 - wrong size (%"PRIu32"/>=109)",length);
+				eptr->mode = KILL;
+				return;
+			}
+			eptr->version = get32bit(&rptr);
+			eptr->asize = (eptr->version>=VERSION2INT(3,0,93)&&eptr->version!=VERSION2INT(4,0,0)&&eptr->version!=VERSION2INT(4,0,1))?ATTR_RECORD_SIZE:35;
+
+			status = MFS_STATUS_OK;
+			if (sclass_ec_version()>0 && eptr->version<VERSION2INT(4,0,0)) {
+				if (RestrictIncompatibleClientVersions) {
+					mfs_log(MFSLOG_SYSLOG,MFSLOG_WARNING,"CLTOMA_FUSE_REGISTER/ACL.10 - client (ip:%s) is too old - erasure coding needs clients at least 4.x",eptr->strip);
+					status = MFS_ERROR_EPERM;
+				} else {
+					mfs_log(MFSLOG_SYSLOG,MFSLOG_NOTICE,"CLTOMA_FUSE_REGISTER/ACL.10 - old client registered - erasure coding needs clients at least 4.x - files in EC format will not be accessible");
+				}
+			}
+			if (sclass_ec_version()>1 && eptr->version<VERSION2INT(4,26,0)) {
+				if (RestrictIncompatibleClientVersions) {
+					mfs_log(MFSLOG_SYSLOG,MFSLOG_WARNING,"CLTOMA_FUSE_REGISTER/ACL.10 - client (ip:%s) is too old - erasure coding 4+n needs clients at least 4.26.x",eptr->strip);
+					status = MFS_ERROR_EPERM;
+				} else {
+					mfs_log(MFSLOG_SYSLOG,MFSLOG_NOTICE,"CLTOMA_FUSE_REGISTER/ACL.10 - old client registered - erasure coding 4+n needs clients at least 4.26.x - files in EC4 format will not be accessible");
+				}
+			}
+
+			ileng = get32bit(&rptr);
+			if (length < 65+8+ileng+4+32) {
+				mfs_log(MFSLOG_SYSLOG,MFSLOG_WARNING,"CLTOMA_FUSE_REGISTER/ACL.10 - wrong size (%"PRIu32"/>=65+8+ileng(%"PRIu32")+36)",length,ileng);
+				eptr->mode = KILL;
+				return;
+			}
+			if (eptr->info!=NULL) {
+				free(eptr->info);
+			}
+			eptr->ileng = ileng;
+			eptr->info = malloc(ileng);
+			passert(eptr->info);
+			memcpy(eptr->info,rptr,ileng);
+			rptr+=ileng;
+
+			{
+				uint32_t tenant_id_len;
+				const uint8_t *tenant_id_ptr;
+				const uint8_t *hmac_ptr;
+				void *tnt;
+
+				tenant_id_len = get32bit(&rptr);
+				if (tenant_id_len==0 || tenant_id_len>64) {
+					mfs_log(MFSLOG_SYSLOG,MFSLOG_WARNING,"CLTOMA_FUSE_REGISTER/ACL.10 - invalid tenant_id_len (%"PRIu32")",tenant_id_len);
+					eptr->mode = KILL;
+					return;
+				}
+				if (length < 65+8+ileng+4+tenant_id_len+32) {
+					mfs_log(MFSLOG_SYSLOG,MFSLOG_WARNING,"CLTOMA_FUSE_REGISTER/ACL.10 - wrong size (%"PRIu32"/>=65+8+ileng(%"PRIu32")+4+tid(%"PRIu32")+32)",length,ileng,tenant_id_len);
+					eptr->mode = KILL;
+					return;
+				}
+				tenant_id_ptr = rptr;
+				rptr += tenant_id_len;
+				hmac_ptr = rptr;
+				rptr += 32;
+
+				// check for optional sessionid and metaid
+				{
+					uint32_t remaining = length - (65+8+ileng+4+tenant_id_len+32);
+					if (remaining>=12) {
+						sessionid = get32bit(&rptr);
+						expected_metaid = get64bit(&rptr);
+						if (expected_metaid != meta_get_id()) {
+							sessionid = 0;
+						}
+					} else if (remaining>=4) {
+						sessionid = get32bit(&rptr);
+					} else {
+						sessionid = 0;
+					}
+				}
+
+				if (status==MFS_STATUS_OK) {
+					tnt = tenants_find((const char*)tenant_id_ptr,tenant_id_len);
+					if (tnt==NULL) {
+						mfs_log(MFSLOG_SYSLOG,MFSLOG_NOTICE,"CLTOMA_FUSE_REGISTER/ACL.10 - tenant not found (ip:%s)",eptr->strip);
+						status = MFS_ERROR_EACCES;
+					} else if (!tenants_auth_check(tnt,eptr->passwordrnd,hmac_ptr)) {
+						mfs_log(MFSLOG_SYSLOG,MFSLOG_NOTICE,"CLTOMA_FUSE_REGISTER/ACL.10 - tenant auth failed (ip:%s)",eptr->strip);
+						status = MFS_ERROR_BADPASSWORD;
+					} else {
+						sesflags = tenants_get_sesflags(tnt) | SESFLAG_MAPALL;
+						umaskval = 0;
+						rootuid = 0;
+						rootgid = 0;
+						mapalluid = tenants_get_uid(tnt);
+						mapallgid = tenants_get_gid(tnt);
+						sclassgroups = tenants_get_sclassgroups(tnt);
+						mintrashretention = 0;
+						maxtrashretention = UINT32_C(0xFFFFFFFF);
+						disables = 0;
+
+						status = fs_getrootinode(&rootinode,tenants_get_rootpath(tnt));
+						if (status!=MFS_STATUS_OK) {
+							mfs_log(MFSLOG_SYSLOG,MFSLOG_WARNING,"CLTOMA_FUSE_REGISTER/ACL.10 - tenant root path not found (ip:%s)",eptr->strip);
+						}
+					}
+				}
+
+				created = 0;
+				if (status==MFS_STATUS_OK) {
+					if (sessionid!=0) {
+						eptr->sesdata = sessions_find_session(sessionid);
+						if (eptr->sesdata==NULL) {
+							sessionid = 0;
+						} else {
+							sessionid = sessions_chg_session(eptr->sesdata,exports_checksum(),rootinode,sesflags,umaskval,rootuid,rootgid,mapalluid,mapallgid,sclassgroups,mintrashretention,maxtrashretention,disables,eptr->peerip,eptr->info,eptr->ileng);
+						}
+					}
+					if (sessionid==0) {
+						eptr->sesdata = sessions_new_session(exports_checksum(),rootinode,sesflags,umaskval,rootuid,rootgid,mapalluid,mapallgid,sclassgroups,mintrashretention,maxtrashretention,disables,eptr->peerip,eptr->info,eptr->ileng);
+						created = 1;
+					}
+					if (eptr->sesdata==NULL) {
+						mfs_log(MFSLOG_SYSLOG,MFSLOG_WARNING,"can't allocate session record");
+						eptr->mode = KILL;
+						return;
+					}
+					// set tenant_id on the session for audit logging
+					sessions_set_tenant_id(eptr->sesdata,(const char*)tenant_id_ptr,tenant_id_len);
+				}
+				asize = 1;
+				if (status==MFS_STATUS_OK) {
+					if (eptr->version>=VERSION2INT(4,40,0)) {
+						asize = 57;
+					} else if (eptr->version>=VERSION2INT(4,21,0)||(eptr->version>=VERSION2INT(3,0,112)&&eptr->version<VERSION2INT(4,0,0))) {
+						asize = 49;
+					} else if (eptr->version>=VERSION2INT(3,0,72)) {
+						asize = 45;
+					} else if (eptr->version>=VERSION2INT(3,0,11)) {
+						asize = 43;
+					} else if (eptr->version>=VERSION2INT(1,6,26)) {
+						asize = 35;
+					} else if (eptr->version>=VERSION2INT(1,6,21)) {
+						asize = 25;
+					} else if (eptr->version>=VERSION2INT(1,6,1)) {
+						asize = 21;
+					} else {
+						asize = 13;
+					}
+				}
+				wptr = matoclserv_create_packet(eptr,MATOCL_FUSE_REGISTER,asize);
+				if (status!=MFS_STATUS_OK) {
+					put8bit(&wptr,status);
+					eptr->sesdata = NULL;
+					return;
+				}
+				sessionid = sessions_get_id(eptr->sesdata);
+				if (eptr->version==VERSION2INT(1,6,21)) {
+					put32bit(&wptr,0);
+				} else if (eptr->version>=VERSION2INT(1,6,22)) {
+					put16bit(&wptr,VERSMAJ);
+					put8bit(&wptr,VERSMID);
+					put8bit(&wptr,VERSMIN);
+				}
+				put32bit(&wptr,sessionid);
+				if (eptr->version>=VERSION2INT(3,0,11)) {
+					put64bit(&wptr,meta_get_id());
+				}
+				put8bit(&wptr,sesflags);
+				if (eptr->version>=VERSION2INT(3,0,72)) {
+					put16bit(&wptr,umaskval);
+				}
+				put32bit(&wptr,rootuid);
+				put32bit(&wptr,rootgid);
+				if (eptr->version>=VERSION2INT(1,6,1)) {
+					put32bit(&wptr,mapalluid);
+					put32bit(&wptr,mapallgid);
+				}
+				if (eptr->version>=VERSION2INT(1,6,26)) {
+					if (eptr->version>=VERSION2INT(4,57,0)) {
+						put16bit(&wptr,sclassgroups);
+					} else {
+						put8bit(&wptr,1);
+						put8bit(&wptr,9);
+					}
+					put32bit(&wptr,mintrashretention);
+					put32bit(&wptr,maxtrashretention);
+				}
+				if (eptr->version>=VERSION2INT(4,21,0)||(eptr->version>=VERSION2INT(3,0,112)&&eptr->version<VERSION2INT(4,0,0))) {
+					put32bit(&wptr,disables);
+				}
+				if (eptr->version>=VERSION2INT(4,40,0)) {
+					put64bit(&wptr,master_processid);
+				}
+				sessions_attach_session(eptr->sesdata,eptr->peerip,eptr->version);
+				eptr->registered = REGISTERED;
+				if (created) {
+					if (sessionid>0 && sessionid<UINT32_C(0x80000000)) {
+						mfs_log(MFSLOG_SYSLOG,MFSLOG_INFO,"created new tenant sessionid:%"PRIu32" (client ip:%s)",sessionid,eptr->strip);
+					} else {
+						mfs_log(MFSLOG_SYSLOG,MFSLOG_INFO,"created temporary tenant session (id:TMP/%u ; client ip:%s)",sessionid&0x7FFFFFFF,eptr->strip);
+					}
+				}
+			}
+			return;
 		case REGISTER_NEWMETASESSION:
 			if (length<73) {
 				mfs_log(MFSLOG_SYSLOG,MFSLOG_WARNING,"CLTOMA_FUSE_REGISTER/ACL.5 - wrong size (%"PRIu32"/>=73)",length);
@@ -2739,6 +2946,7 @@ void matoclserv_fuse_lookup(matoclserventry *eptr,const uint8_t *data,uint32_t l
 		put32bit(&ptr,msgid);
 		put8bit(&ptr,status);
 	}
+	audit_log(sessions_get_id(eptr->sesdata), auid, agid, "LOOKUP", inode, status);
 	sessions_inc_stats(eptr->sesdata,SES_OP_LOOKUP);
 }
 
@@ -2864,6 +3072,7 @@ void matoclserv_fuse_setattr(matoclserventry *eptr,const uint8_t *data,uint32_t 
 	} else {
 		memcpy(ptr,attr,eptr->asize);
 	}
+	audit_log(sessions_get_id(eptr->sesdata), auid, agid, "SETATTR", inode, status);
 	sessions_inc_stats(eptr->sesdata,SES_OP_SETATTR);
 }
 
@@ -3183,6 +3392,7 @@ void matoclserv_fuse_mkdir(matoclserventry *eptr,const uint8_t *data,uint32_t le
 		put32bit(&ptr,newinode);
 		memcpy(ptr,attr,eptr->asize);
 	}
+	audit_log(sessions_get_id(eptr->sesdata), auid, agid, "MKDIR", inode, status);
 	sessions_inc_stats(eptr->sesdata,SES_OP_MKDIR);
 }
 
@@ -3247,6 +3457,7 @@ void matoclserv_fuse_unlink(matoclserventry *eptr,const uint8_t *data,uint32_t l
 		put32bit(&ptr,msgid);
 		put8bit(&ptr,status);
 	}
+	audit_log(sessions_get_id(eptr->sesdata), uid, gid[0], "UNLINK", inode, status);
 	sessions_inc_stats(eptr->sesdata,SES_OP_UNLINK);
 }
 
@@ -3311,6 +3522,7 @@ void matoclserv_fuse_rmdir(matoclserventry *eptr,const uint8_t *data,uint32_t le
 		put32bit(&ptr,msgid);
 		put8bit(&ptr,status);
 	}
+	audit_log(sessions_get_id(eptr->sesdata), uid, gid[0], "RMDIR", inode, status);
 	sessions_inc_stats(eptr->sesdata,SES_OP_RMDIR);
 }
 
@@ -3395,6 +3607,7 @@ void matoclserv_fuse_rename(matoclserventry *eptr,const uint8_t *data,uint32_t l
 		put32bit(&ptr,msgid);
 		put8bit(&ptr,status);
 	}
+	audit_log(sessions_get_id(eptr->sesdata), auid, agid, "RENAME", inode_src, status);
 	sessions_inc_stats(eptr->sesdata,SES_OP_RENAME);
 }
 
@@ -3660,6 +3873,7 @@ void matoclserv_fuse_open(matoclserventry *eptr,const uint8_t *data,uint32_t len
 		put32bit(&ptr,msgid);
 		put8bit(&ptr,status);
 	}
+	audit_log(sessions_get_id(eptr->sesdata), auid, agid, "OPEN", inode, status);
 	sessions_inc_stats(eptr->sesdata,SES_OP_OPEN);
 }
 
@@ -3797,6 +4011,7 @@ void matoclserv_fuse_create(matoclserventry *eptr,const uint8_t *data,uint32_t l
 		put32bit(&ptr,msgid);
 		put8bit(&ptr,status);
 	}
+	audit_log(sessions_get_id(eptr->sesdata), auid, agid, "CREATE", inode, status);
 	sessions_inc_stats(eptr->sesdata,SES_OP_CREATE);
 }
 

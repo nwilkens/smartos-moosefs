@@ -56,6 +56,7 @@ mfsmount_SOURCES = \
 	../mfscommon/crc.c ../mfscommon/crc.h \
 	../mfscommon/crc_pclmul.c ../mfscommon/crc_pclmul.h \
 	../mfscommon/md5.c ../mfscommon/md5.h \
+	../mfscommon/sha256.c ../mfscommon/sha256.h \
 	../mfscommon/sockets.c ../mfscommon/sockets.h \
 	../mfscommon/conncache.c ../mfscommon/conncache.h \
 	../mfscommon/lwthread.c ../mfscommon/lwthread.h \
@@ -99,6 +100,7 @@ libmfsio_la_SOURCES = \
 	../mfscommon/crc.c ../mfscommon/crc.h \
 	../mfscommon/crc_pclmul.c ../mfscommon/crc_pclmul.h \
 	../mfscommon/md5.c ../mfscommon/md5.h \
+	../mfscommon/sha256.c ../mfscommon/sha256.h \
 	../mfscommon/sockets.c ../mfscommon/sockets.h \
 	../mfscommon/conncache.c ../mfscommon/conncache.h \
 	../mfscommon/lwthread.c ../mfscommon/lwthread.h \

@@ -653,6 +653,27 @@ static uint32_t chunkhashelem;
 static uint64_t nextchunkid=1;
 #define LOCKTIMEOUT 120
 
+static inline chunk* chunk_hash_find(uint64_t chunkid);
+
+static uint64_t chunk_generate_id(void) {
+	uint64_t chunkid;
+	uint32_t attempts;
+	for (attempts=0 ; attempts<100 ; attempts++) {
+		chunkid = rndu64() & UINT64_C(0x00FFFFFFFFFFFFFF); // 56 bits - top byte reserved for ECID encoding in master<->CS protocol
+		if (chunkid<2) { // avoid 0 and 1
+			continue;
+		}
+		if (chunk_hash_find(chunkid)==NULL) {
+			if (chunkid>=nextchunkid) {
+				nextchunkid = chunkid+1;
+			}
+			return chunkid;
+		}
+	}
+	// fallback to sequential (should never happen with 56-bit space)
+	return nextchunkid++;
+}
+
 #define UNUSED_DELETE_TIMEOUT (86400*7)
 
 typedef struct _csopchunk {
@@ -3590,7 +3611,7 @@ int chunk_univ_multi_modify(uint32_t ts,uint8_t mr,uint8_t continueop,uint64_t *
 					}
 				}
 			}
-			c = chunk_new(nextchunkid++);
+			c = chunk_new(chunk_generate_id());
 			c->version = 1;
 			c->interrupted = 0;
 			chunk_set_op(c,CREATE);
@@ -3625,10 +3646,13 @@ int chunk_univ_multi_modify(uint32_t ts,uint8_t mr,uint8_t continueop,uint64_t *
 			*opflag=1;
 			*nchunkid = c->chunkid;
 		} else {
-			if (*nchunkid != nextchunkid) {
+			if (chunk_find(*nchunkid)!=NULL) {
 				return MFS_ERROR_MISMATCH;
 			}
-			c = chunk_new(nextchunkid++);
+			c = chunk_new(*nchunkid);
+			if (*nchunkid>=nextchunkid) {
+				nextchunkid = *nchunkid+1;
+			}
 			c->version = 1;
 			chunk_add_file_int(c,sclassid);
 		}
@@ -3714,7 +3738,7 @@ int chunk_univ_multi_modify(uint32_t ts,uint8_t mr,uint8_t continueop,uint64_t *
 				if (status!=MFS_STATUS_OK) {
 					return status;
 				}
-				c = chunk_new(nextchunkid++);
+				c = chunk_new(chunk_generate_id());
 				c->version = 1;
 				c->interrupted = 0;
 				chunk_delete_file_int(oc,sclassid,0);
@@ -3746,10 +3770,13 @@ int chunk_univ_multi_modify(uint32_t ts,uint8_t mr,uint8_t continueop,uint64_t *
 				*nchunkid = c->chunkid;
 				*opflag=1;
 			} else {
-				if (*nchunkid != nextchunkid) {
+				if (chunk_find(*nchunkid)!=NULL) {
 					return MFS_ERROR_MISMATCH;
 				}
-				c = chunk_new(nextchunkid++);
+				c = chunk_new(*nchunkid);
+				if (*nchunkid>=nextchunkid) {
+					nextchunkid = *nchunkid+1;
+				}
 				c->version = 1;
 				chunk_delete_file_int(oc,sclassid,0);
 				chunk_add_file_int(c,sclassid);
@@ -3862,7 +3889,7 @@ int chunk_univ_multi_truncate(uint32_t ts,uint8_t mr,uint64_t *nchunkid,uint64_t
 			if (status!=MFS_STATUS_OK) {
 				return status;
 			}
-			c = chunk_new(nextchunkid++);
+			c = chunk_new(chunk_generate_id());
 			c->version = 1;
 			c->interrupted = 0;
 			chunk_delete_file_int(oc,sclassid,0);
@@ -3892,10 +3919,13 @@ int chunk_univ_multi_truncate(uint32_t ts,uint8_t mr,uint64_t *nchunkid,uint64_t
 			chunk_state_set_counters(c,STORAGE_MODE_COPIES,allvc,allvc);
 			*nchunkid = c->chunkid;
 		} else {
-			if (*nchunkid != nextchunkid) {
+			if (chunk_find(*nchunkid)!=NULL) {
 				return MFS_ERROR_MISMATCH;
 			}
-			c = chunk_new(nextchunkid++);
+			c = chunk_new(*nchunkid);
+			if (*nchunkid>=nextchunkid) {
+				nextchunkid = *nchunkid+1;
+			}
 			c->version = 1;
 			chunk_delete_file_int(oc,sclassid,0);
 			chunk_add_file_int(c,sclassid);
@@ -4298,9 +4328,6 @@ int chunk_mr_chunkadd(uint32_t ts,uint64_t chunkid,uint32_t version,uint32_t loc
 	if (c) {
 		return MFS_ERROR_CHUNKEXIST;
 	}
-	if (chunkid>nextchunkid+UINT64_C(1000000000)) {
-		return MFS_ERROR_MISMATCH;
-	}
 	if (lockedto>0 && lockedto<ts) {
 		return MFS_ERROR_MISMATCH;
 	}
@@ -4394,7 +4421,7 @@ void chunk_server_has_chunk(uint16_t csid,uint64_t chunkid,uint8_t ecid,uint32_t
 			loglastts = main_time();
 		}
 #endif
-		if (chunkid==0 || chunkid>nextchunkid+UINT64_C(1000000000)) {
+		if (chunkid==0) {
 #ifndef MFSDEBUG
 			if (ilogcount<10) {
 #endif
@@ -4510,10 +4537,6 @@ void chunk_damaged(uint16_t csid,uint64_t chunkid,uint8_t ecid) {
 
 	c = chunk_find(chunkid);
 	if (c==NULL) {
-		if (chunkid>nextchunkid+UINT64_C(1000000000)) {
-			mfs_log(MFSLOG_SYSLOG,MFSLOG_WARNING,"chunkserver has nonexistent chunk (%016"PRIX64"), id looks wrong - just ignore it",chunkid);
-			return;
-		}
 		mfs_log(MFSLOG_SYSLOG,MFSLOG_WARNING,"chunkserver has nonexistent chunk (%016"PRIX64"), so create it for future deletion",chunkid);
 		if (chunkid>=nextchunkid) {
 			nextchunkid=chunkid+1;

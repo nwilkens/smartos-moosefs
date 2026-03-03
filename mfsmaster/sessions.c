@@ -86,6 +86,7 @@ typedef struct session {
 	uint32_t cminopstats[SESSION_STATS];
 	uint32_t lminopstats[SESSION_STATS];
 //	filelist *openedfiles;
+	char tenant_id[65];	// tenant id for audit logging (empty string if not a tenant session)
 	struct session *next;
 } session;
 
@@ -769,6 +770,7 @@ static inline void* sessions_create_session(uint64_t exportscsum,uint32_t rootin
 	}
 	sesdata->closed = 0;
 //	sesdata->openedfiles = NULL;
+	sesdata->tenant_id[0] = 0;
 	sesdata->disconnected = 0;
 	sesdata->nsocks = 0;
 	sesdata->infopeerip = 0;
@@ -1008,6 +1010,24 @@ uint32_t sessions_get_disables(void *vsesdata) {
 uint8_t sessions_is_root_remapped(void *vsesdata) {
 	session *sesdata = (session*)vsesdata;
 	return (sesdata->rootuid!=0)?1:0;
+}
+
+void sessions_set_tenant_id(void *vsesdata,const char *tenant_id,uint32_t tenant_id_len) {
+	session *sesdata = (session*)vsesdata;
+	if (tenant_id!=NULL && tenant_id_len>0) {
+		if (tenant_id_len>64) {
+			tenant_id_len = 64;
+		}
+		memcpy(sesdata->tenant_id,tenant_id,tenant_id_len);
+		sesdata->tenant_id[tenant_id_len] = 0;
+	} else {
+		sesdata->tenant_id[0] = 0;
+	}
+}
+
+const char* sessions_get_tenant_id(void *vsesdata) {
+	session *sesdata = (session*)vsesdata;
+	return sesdata->tenant_id;
 }
 
 uint8_t sessions_check_sclass(void *vsesdata,uint8_t smode,uint8_t sclassid) {

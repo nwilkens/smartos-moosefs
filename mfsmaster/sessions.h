@@ -108,6 +108,8 @@ uint16_t sessions_get_umask(void *vsesdata);
 uint32_t sessions_get_disables(void *vsesdata);
 uint8_t sessions_is_root_remapped(void *vsesdata);
 uint8_t sessions_check_sclass(void *vsesdata,uint8_t smode,uint8_t sclassid);
+void sessions_set_tenant_id(void *vsesdata,const char *tenant_id,uint32_t tenant_id_len);
+const char* sessions_get_tenant_id(void *vsesdata);
 uint8_t sessions_check_trashretention(void *vsesdata,uint8_t smode,uint32_t trashretention);
 void sessions_inc_stats(void *vsesdata,uint8_t statid);
 void sessions_add_stats(void *vsesdata,uint8_t statid,uint64_t value);

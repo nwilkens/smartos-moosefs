@@ -19,9 +19,11 @@ mfsstatsdump_CPPFLAGS = -I$(top_srcdir)/mfscommon
 mfsstatsdump_LDFLAGS = $(ZLIB_LIBS)
 
 mfsmaster_SOURCES = \
+	audit.c audit.h \
 	itree.h itree.c \
 	topology.h topology.c \
 	exports.h exports.c \
+	tenants.h tenants.c \
 	bio.h bio.c \
 	changelog.c changelog.h \
 	chunkdelay.c chunkdelay.h \

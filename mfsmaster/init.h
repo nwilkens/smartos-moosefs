@@ -37,6 +37,8 @@
 #include "globengine.h"
 #include "bgsaver.h"
 #include "multilan.h"
+#include "audit.h"
+#include "tenants.h"
 
 #define MODULE_OPTIONS_GETOPT "iax"
 #define MODULE_OPTIONS_SWITCH \
@@ -66,11 +68,13 @@ struct {
 	{missing_log_init,"missing chunks/files log"}, // has to be before 'fs_init'
 	{dcm_init,"data cache manager"}, // has to be before 'fs_init' and 'matoclserv_init'
 	{exports_init,"exports manager"},
+	{tenants_init,"tenants manager"},
 	{topology_init,"net topology module"},
 	{meta_init,"metadata manager"},
 	{chartsdata_init,"charts module"},
 	{matomlserv_init,"communication with metalogger"},
 	{matocsserv_init,"communication with chunkserver"},
+	{audit_init,"audit logging"},
 	{matoclserv_init,"communication with clients"},
 	{(runfn)0,"****"}
 },LateRunTab[]={

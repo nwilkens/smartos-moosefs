@@ -69,6 +69,7 @@
 #include "sockets.h"
 #include "strerr.h"
 #include "md5.h"
+#include "sha256.h"
 #include "datapack.h"
 #include "clocks.h"
 #include "portable.h"
@@ -303,6 +304,8 @@ struct connect_args_t {
 	char *subfolder;
 	uint8_t *passworddigest;
 	uint32_t minversion;
+	char *tenant_id;
+	uint8_t *tenant_secret;	// 32 bytes parsed from hex, or NULL
 };
 
 static struct connect_args_t connect_args;
@@ -1156,9 +1159,11 @@ int fs_connect(uint8_t oninit,struct connect_args_t *cargs) {
 	uint8_t *wptr,*regbuff;
 	md5ctx ctx;
 	uint8_t digest[16];
+	uint8_t hmac_response[32];
 	const uint8_t *rptr;
 	uint32_t newmasterip;
 	uint8_t havepassword;
+	uint8_t havetenant;
 	uint32_t pleng,ileng;
 	uint8_t sesflags;
 	uint16_t umaskval;
@@ -1185,22 +1190,43 @@ int fs_connect(uint8_t oninit,struct connect_args_t *cargs) {
 	}
 
 	havepassword = (cargs->passworddigest==NULL)?0:1;
+	havetenant = (cargs->tenant_id!=NULL && cargs->tenant_secret!=NULL)?1:0;
 	ileng = strlen(cargs->info)+1;
-	if (cargs->meta) {
+	if (havetenant) {
+		// REGISTER_TENANT_SESSION: header(8) + blob(64) + rcode(1) + version(4) + ileng(4) + info(ileng) + tenant_id_len(4) + tenant_id + hmac(32)
+		pleng = 0;
+		rleng = 8+64+1+4+4+ileng+4+strlen(cargs->tenant_id)+32;
+		if (sessionlost==2) {
+			rleng += 4;
+			if (metaid!=0) {
+				rleng += 8;
+			}
+		}
+	} else if (cargs->meta) {
 		pleng = 0;
 		rleng = 9;
+		rleng += 8+64+pleng+ileng;
+		if (havepassword) {
+			rleng += 16;
+		}
+		if (sessionlost==2) {
+			rleng += 4;
+			if (metaid!=0) {
+				rleng += 8;
+			}
+		}
 	} else {
 		pleng = strlen(cargs->subfolder)+1;
 		rleng = 13;
-	}
-	rleng += 8+64+pleng+ileng;
-	if (havepassword) {
-		rleng += 16;
-	}
-	if (sessionlost==2) {
-		rleng += 4;
-		if (metaid!=0) {
-			rleng += 8;
+		rleng += 8+64+pleng+ileng;
+		if (havepassword) {
+			rleng += 16;
+		}
+		if (sessionlost==2) {
+			rleng += 4;
+			if (metaid!=0) {
+				rleng += 8;
+			}
 		}
 	}
 	regbuff = malloc(rleng);
@@ -1254,7 +1280,7 @@ int fs_connect(uint8_t oninit,struct connect_args_t *cargs) {
 				return -1;
 			}
 		}
-		if (havepassword) {
+		if (havepassword || havetenant) {
 			wptr = regbuff;
 			put32bit(&wptr,CLTOMA_FUSE_REGISTER);
 			put32bit(&wptr,65);
@@ -1319,37 +1345,70 @@ int fs_connect(uint8_t oninit,struct connect_args_t *cargs) {
 				free(regbuff);
 				return -1;
 			}
-			md5_init(&ctx);
-			md5_update(&ctx,regbuff,16);
-			md5_update(&ctx,cargs->passworddigest,16);
-			md5_update(&ctx,regbuff+16,16);
-			md5_final(digest,&ctx);
-		}
-		wptr = regbuff;
-		put32bit(&wptr,CLTOMA_FUSE_REGISTER);
-		put32bit(&wptr,rleng-8);
-		memcpy(wptr,FUSE_REGISTER_BLOB_ACL,64);
-		wptr+=64;
-		put8bit(&wptr,(cargs->meta)?REGISTER_NEWMETASESSION:REGISTER_NEWSESSION);
-		put16bit(&wptr,VERSMAJ);
-		put8bit(&wptr,VERSMID);
-		put8bit(&wptr,VERSMIN);
-		put32bit(&wptr,ileng);
-		memcpy(wptr,cargs->info,ileng);
-		wptr+=ileng;
-		if (!cargs->meta) {
-			put32bit(&wptr,pleng);
-			memcpy(wptr,cargs->subfolder,pleng);
-			wptr+=pleng;
-		}
-		if (sessionlost==2) {
-			put32bit(&wptr,sessionid);
-			if (metaid!=0) {
-				put64bit(&wptr,metaid);
+			if (havetenant) {
+				// compute HMAC-SHA256(tenant_secret, challenge)
+				hmac_sha256(cargs->tenant_secret,32,regbuff,32,hmac_response);
+			}
+			if (havepassword && !havetenant) {
+				md5_init(&ctx);
+				md5_update(&ctx,regbuff,16);
+				md5_update(&ctx,cargs->passworddigest,16);
+				md5_update(&ctx,regbuff+16,16);
+				md5_final(digest,&ctx);
 			}
 		}
-		if (havepassword) {
-			memcpy(wptr,digest,16);
+		if (havetenant) {
+			uint32_t tidlen = strlen(cargs->tenant_id);
+			wptr = regbuff;
+			put32bit(&wptr,CLTOMA_FUSE_REGISTER);
+			put32bit(&wptr,rleng-8);
+			memcpy(wptr,FUSE_REGISTER_BLOB_ACL,64);
+			wptr+=64;
+			put8bit(&wptr,REGISTER_TENANT_SESSION);
+			put16bit(&wptr,VERSMAJ);
+			put8bit(&wptr,VERSMID);
+			put8bit(&wptr,VERSMIN);
+			put32bit(&wptr,ileng);
+			memcpy(wptr,cargs->info,ileng);
+			wptr+=ileng;
+			put32bit(&wptr,tidlen);
+			memcpy(wptr,cargs->tenant_id,tidlen);
+			wptr+=tidlen;
+			memcpy(wptr,hmac_response,32);
+			wptr+=32;
+			if (sessionlost==2) {
+				put32bit(&wptr,sessionid);
+				if (metaid!=0) {
+					put64bit(&wptr,metaid);
+				}
+			}
+		} else {
+			wptr = regbuff;
+			put32bit(&wptr,CLTOMA_FUSE_REGISTER);
+			put32bit(&wptr,rleng-8);
+			memcpy(wptr,FUSE_REGISTER_BLOB_ACL,64);
+			wptr+=64;
+			put8bit(&wptr,(cargs->meta)?REGISTER_NEWMETASESSION:REGISTER_NEWSESSION);
+			put16bit(&wptr,VERSMAJ);
+			put8bit(&wptr,VERSMID);
+			put8bit(&wptr,VERSMIN);
+			put32bit(&wptr,ileng);
+			memcpy(wptr,cargs->info,ileng);
+			wptr+=ileng;
+			if (!cargs->meta) {
+				put32bit(&wptr,pleng);
+				memcpy(wptr,cargs->subfolder,pleng);
+				wptr+=pleng;
+			}
+			if (sessionlost==2) {
+				put32bit(&wptr,sessionid);
+				if (metaid!=0) {
+					put64bit(&wptr,metaid);
+				}
+			}
+			if (havepassword) {
+				memcpy(wptr,digest,16);
+			}
 		}
 		if (tcptowrite(fd,regbuff,rleng,1000,send_timeout*1000)!=rleng) {
 			if (oninit) {
@@ -2592,6 +2651,57 @@ int fs_init_master_connection(const char *bindhostname,const char *masterhostnam
 	}
 	connect_args.minversion = minversion;
 
+	// check for tenant authentication via environment variables
+	{
+		const char *tid_env = getenv("MFSTENANT_ID");
+		const char *tsecret_env = getenv("MFSTENANT_SECRET");
+		if (tid_env!=NULL && tsecret_env!=NULL && tid_env[0]!=0 && tsecret_env[0]!=0) {
+			uint32_t slen = strlen(tsecret_env);
+			if (slen!=64) {
+				mfs_log(MFSLOG_SYSLOG_STDERR,MFSLOG_WARNING,"MFSTENANT_SECRET must be exactly 64 hex characters (got %"PRIu32")",slen);
+				return -1;
+			}
+			connect_args.tenant_id = strdup(tid_env);
+			connect_args.tenant_secret = malloc(32);
+			passert(connect_args.tenant_secret);
+			{
+				uint32_t ti;
+				for (ti=0 ; ti<32 ; ti++) {
+					uint8_t hi,lo;
+					char hc = tsecret_env[2*ti];
+					char lc = tsecret_env[2*ti+1];
+					if (hc>='0' && hc<='9') { hi = hc-'0'; }
+					else if (hc>='a' && hc<='f') { hi = hc-'a'+10; }
+					else if (hc>='A' && hc<='F') { hi = hc-'A'+10; }
+					else {
+						mfs_log(MFSLOG_SYSLOG_STDERR,MFSLOG_WARNING,"MFSTENANT_SECRET contains invalid hex character");
+						free(connect_args.tenant_id);
+						free(connect_args.tenant_secret);
+						connect_args.tenant_id = NULL;
+						connect_args.tenant_secret = NULL;
+						return -1;
+					}
+					if (lc>='0' && lc<='9') { lo = lc-'0'; }
+					else if (lc>='a' && lc<='f') { lo = lc-'a'+10; }
+					else if (lc>='A' && lc<='F') { lo = lc-'A'+10; }
+					else {
+						mfs_log(MFSLOG_SYSLOG_STDERR,MFSLOG_WARNING,"MFSTENANT_SECRET contains invalid hex character");
+						free(connect_args.tenant_id);
+						free(connect_args.tenant_secret);
+						connect_args.tenant_id = NULL;
+						connect_args.tenant_secret = NULL;
+						return -1;
+					}
+					connect_args.tenant_secret[ti] = (hi<<4)|lo;
+				}
+			}
+			mfs_log(MFSLOG_SYSLOG_STDERR,MFSLOG_INFO,"using tenant authentication for tenant '%s'",tid_env);
+		} else {
+			connect_args.tenant_id = NULL;
+			connect_args.tenant_secret = NULL;
+		}
+	}
+
 	if (bgregister) {
 		return 1;
 	}
@@ -2714,6 +2824,13 @@ void fs_term(void) {
 	free(connect_args.subfolder);
 	if (connect_args.passworddigest) {
 		free(connect_args.passworddigest);
+	}
+	if (connect_args.tenant_id) {
+		free(connect_args.tenant_id);
+	}
+	if (connect_args.tenant_secret) {
+		memset(connect_args.tenant_secret,0,32);
+		free(connect_args.tenant_secret);
 	}
 	heap_term();
 	ep_term();

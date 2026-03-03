@@ -109,8 +109,9 @@ CONFIG_CLEAN_VPATH_FILES =
 am__installdirs = "$(DESTDIR)$(sbindir)" "$(DESTDIR)$(sbindir)"
 PROGRAMS = $(sbin_PROGRAMS)
 am__dirstamp = $(am__leading_dot)dirstamp
-am_mfsmaster_OBJECTS = mfsmaster-itree.$(OBJEXT) \
-	mfsmaster-topology.$(OBJEXT) mfsmaster-exports.$(OBJEXT) \
+am_mfsmaster_OBJECTS = mfsmaster-audit.$(OBJEXT) \
+	mfsmaster-itree.$(OBJEXT) mfsmaster-topology.$(OBJEXT) \
+	mfsmaster-exports.$(OBJEXT) mfsmaster-tenants.$(OBJEXT) \
 	mfsmaster-bio.$(OBJEXT) mfsmaster-changelog.$(OBJEXT) \
 	mfsmaster-chunkdelay.$(OBJEXT) mfsmaster-chunks.$(OBJEXT) \
 	mfsmaster-filesystem.$(OBJEXT) mfsmaster-appendres.$(OBJEXT) \
@@ -258,6 +259,7 @@ am__depfiles_remade = ../mfscommon/$(DEPDIR)/mfsmaster-cfg.Po \
 	../mfscommon/$(DEPDIR)/mfssupervisor-sockets.Po \
 	../mfscommon/$(DEPDIR)/mfssupervisor-strerr.Po \
 	./$(DEPDIR)/mfsmaster-appendres.Po \
+	./$(DEPDIR)/mfsmaster-audit.Po \
 	./$(DEPDIR)/mfsmaster-bgsaver.Po ./$(DEPDIR)/mfsmaster-bio.Po \
 	./$(DEPDIR)/mfsmaster-changelog.Po \
 	./$(DEPDIR)/mfsmaster-chartsdata.Po \
@@ -285,6 +287,7 @@ am__depfiles_remade = ../mfscommon/$(DEPDIR)/mfsmaster-cfg.Po \
 	./$(DEPDIR)/mfsmaster-sessions.Po \
 	./$(DEPDIR)/mfsmaster-sharedpointer.Po \
 	./$(DEPDIR)/mfsmaster-storageclass.Po \
+	./$(DEPDIR)/mfsmaster-tenants.Po \
 	./$(DEPDIR)/mfsmaster-topology.Po \
 	./$(DEPDIR)/mfsmaster-xattr.Po \
 	./$(DEPDIR)/mfssupervisor-mfssupervisor.Po
@@ -523,9 +526,11 @@ mfsstatsdump_CFLAGS = $(PCLMUL_CFLAGS)
 mfsstatsdump_CPPFLAGS = -I$(top_srcdir)/mfscommon
 mfsstatsdump_LDFLAGS = $(ZLIB_LIBS)
 mfsmaster_SOURCES = \
+	audit.c audit.h \
 	itree.h itree.c \
 	topology.h topology.c \
 	exports.h exports.c \
+	tenants.h tenants.c \
 	bio.h bio.c \
 	changelog.c changelog.h \
 	chunkdelay.c chunkdelay.h \
@@ -879,6 +884,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@../mfscommon/$(DEPDIR)/mfssupervisor-sockets.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@../mfscommon/$(DEPDIR)/mfssupervisor-strerr.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mfsmaster-appendres.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mfsmaster-audit.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mfsmaster-bgsaver.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mfsmaster-bio.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mfsmaster-changelog.Po@am__quote@ # am--include-marker
@@ -908,6 +914,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mfsmaster-sessions.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mfsmaster-sharedpointer.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mfsmaster-storageclass.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mfsmaster-tenants.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mfsmaster-topology.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mfsmaster-xattr.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mfssupervisor-mfssupervisor.Po@am__quote@ # am--include-marker
@@ -941,6 +948,20 @@ am--depfiles: $(am__depfiles_remade)
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$<' object='$@' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LTCOMPILE) -c -o $@ $<
+
+mfsmaster-audit.o: audit.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(mfsmaster_CPPFLAGS) $(CPPFLAGS) $(mfsmaster_CFLAGS) $(CFLAGS) -MT mfsmaster-audit.o -MD -MP -MF $(DEPDIR)/mfsmaster-audit.Tpo -c -o mfsmaster-audit.o `test -f 'audit.c' || echo '$(srcdir)/'`audit.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/mfsmaster-audit.Tpo $(DEPDIR)/mfsmaster-audit.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='audit.c' object='mfsmaster-audit.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(mfsmaster_CPPFLAGS) $(CPPFLAGS) $(mfsmaster_CFLAGS) $(CFLAGS) -c -o mfsmaster-audit.o `test -f 'audit.c' || echo '$(srcdir)/'`audit.c
+
+mfsmaster-audit.obj: audit.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(mfsmaster_CPPFLAGS) $(CPPFLAGS) $(mfsmaster_CFLAGS) $(CFLAGS) -MT mfsmaster-audit.obj -MD -MP -MF $(DEPDIR)/mfsmaster-audit.Tpo -c -o mfsmaster-audit.obj `if test -f 'audit.c'; then $(CYGPATH_W) 'audit.c'; else $(CYGPATH_W) '$(srcdir)/audit.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/mfsmaster-audit.Tpo $(DEPDIR)/mfsmaster-audit.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='audit.c' object='mfsmaster-audit.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(mfsmaster_CPPFLAGS) $(CPPFLAGS) $(mfsmaster_CFLAGS) $(CFLAGS) -c -o mfsmaster-audit.obj `if test -f 'audit.c'; then $(CYGPATH_W) 'audit.c'; else $(CYGPATH_W) '$(srcdir)/audit.c'; fi`
 
 mfsmaster-itree.o: itree.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(mfsmaster_CPPFLAGS) $(CPPFLAGS) $(mfsmaster_CFLAGS) $(CFLAGS) -MT mfsmaster-itree.o -MD -MP -MF $(DEPDIR)/mfsmaster-itree.Tpo -c -o mfsmaster-itree.o `test -f 'itree.c' || echo '$(srcdir)/'`itree.c
@@ -983,6 +1004,20 @@ mfsmaster-exports.obj: exports.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='exports.c' object='mfsmaster-exports.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(mfsmaster_CPPFLAGS) $(CPPFLAGS) $(mfsmaster_CFLAGS) $(CFLAGS) -c -o mfsmaster-exports.obj `if test -f 'exports.c'; then $(CYGPATH_W) 'exports.c'; else $(CYGPATH_W) '$(srcdir)/exports.c'; fi`
+
+mfsmaster-tenants.o: tenants.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(mfsmaster_CPPFLAGS) $(CPPFLAGS) $(mfsmaster_CFLAGS) $(CFLAGS) -MT mfsmaster-tenants.o -MD -MP -MF $(DEPDIR)/mfsmaster-tenants.Tpo -c -o mfsmaster-tenants.o `test -f 'tenants.c' || echo '$(srcdir)/'`tenants.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/mfsmaster-tenants.Tpo $(DEPDIR)/mfsmaster-tenants.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='tenants.c' object='mfsmaster-tenants.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(mfsmaster_CPPFLAGS) $(CPPFLAGS) $(mfsmaster_CFLAGS) $(CFLAGS) -c -o mfsmaster-tenants.o `test -f 'tenants.c' || echo '$(srcdir)/'`tenants.c
+
+mfsmaster-tenants.obj: tenants.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(mfsmaster_CPPFLAGS) $(CPPFLAGS) $(mfsmaster_CFLAGS) $(CFLAGS) -MT mfsmaster-tenants.obj -MD -MP -MF $(DEPDIR)/mfsmaster-tenants.Tpo -c -o mfsmaster-tenants.obj `if test -f 'tenants.c'; then $(CYGPATH_W) 'tenants.c'; else $(CYGPATH_W) '$(srcdir)/tenants.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/mfsmaster-tenants.Tpo $(DEPDIR)/mfsmaster-tenants.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='tenants.c' object='mfsmaster-tenants.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(mfsmaster_CPPFLAGS) $(CPPFLAGS) $(mfsmaster_CFLAGS) $(CFLAGS) -c -o mfsmaster-tenants.obj `if test -f 'tenants.c'; then $(CYGPATH_W) 'tenants.c'; else $(CYGPATH_W) '$(srcdir)/tenants.c'; fi`
 
 mfsmaster-bio.o: bio.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(mfsmaster_CPPFLAGS) $(CPPFLAGS) $(mfsmaster_CFLAGS) $(CFLAGS) -MT mfsmaster-bio.o -MD -MP -MF $(DEPDIR)/mfsmaster-bio.Tpo -c -o mfsmaster-bio.o `test -f 'bio.c' || echo '$(srcdir)/'`bio.c
@@ -2035,6 +2070,7 @@ distclean: distclean-am
 	-rm -f ../mfscommon/$(DEPDIR)/mfssupervisor-sockets.Po
 	-rm -f ../mfscommon/$(DEPDIR)/mfssupervisor-strerr.Po
 	-rm -f ./$(DEPDIR)/mfsmaster-appendres.Po
+	-rm -f ./$(DEPDIR)/mfsmaster-audit.Po
 	-rm -f ./$(DEPDIR)/mfsmaster-bgsaver.Po
 	-rm -f ./$(DEPDIR)/mfsmaster-bio.Po
 	-rm -f ./$(DEPDIR)/mfsmaster-changelog.Po
@@ -2064,6 +2100,7 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/mfsmaster-sessions.Po
 	-rm -f ./$(DEPDIR)/mfsmaster-sharedpointer.Po
 	-rm -f ./$(DEPDIR)/mfsmaster-storageclass.Po
+	-rm -f ./$(DEPDIR)/mfsmaster-tenants.Po
 	-rm -f ./$(DEPDIR)/mfsmaster-topology.Po
 	-rm -f ./$(DEPDIR)/mfsmaster-xattr.Po
 	-rm -f ./$(DEPDIR)/mfssupervisor-mfssupervisor.Po
@@ -2146,6 +2183,7 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ../mfscommon/$(DEPDIR)/mfssupervisor-sockets.Po
 	-rm -f ../mfscommon/$(DEPDIR)/mfssupervisor-strerr.Po
 	-rm -f ./$(DEPDIR)/mfsmaster-appendres.Po
+	-rm -f ./$(DEPDIR)/mfsmaster-audit.Po
 	-rm -f ./$(DEPDIR)/mfsmaster-bgsaver.Po
 	-rm -f ./$(DEPDIR)/mfsmaster-bio.Po
 	-rm -f ./$(DEPDIR)/mfsmaster-changelog.Po
@@ -2175,6 +2213,7 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/mfsmaster-sessions.Po
 	-rm -f ./$(DEPDIR)/mfsmaster-sharedpointer.Po
 	-rm -f ./$(DEPDIR)/mfsmaster-storageclass.Po
+	-rm -f ./$(DEPDIR)/mfsmaster-tenants.Po
 	-rm -f ./$(DEPDIR)/mfsmaster-topology.Po
 	-rm -f ./$(DEPDIR)/mfsmaster-xattr.Po
 	-rm -f ./$(DEPDIR)/mfssupervisor-mfssupervisor.Po

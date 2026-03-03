@@ -1517,6 +1517,14 @@
 // MATOCL:
 //  status:8
 
+#define REGISTER_TENANT_SESSION 10
+// rcode==10: tenant authentication session
+// CLTOMA:
+//  rcode:8 version:32 ileng:32 info:ilengB tenant_id_len:32 tenant_id:tenant_id_lenB hmac_response:32B [ sessionid:32 [ metaid:64 ]]
+// MATOCL:
+//  same as REGISTER_NEWSESSION response
+//  status:8
+
 // 0x0190
 #define CLTOMA_FUSE_REGISTER (PROTO_BASE+400)
 // blob:64B ... (depends on blob - see blob descriptions above)
