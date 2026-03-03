@@ -44,7 +44,7 @@
 #define CHLOGSTRSIZE (4*MAXLABELSCNT*(SCLASS_EXPR_MAX_SIZE*2+1)+1)
 
 #define MAX_EC_LEVEL 9
-#define REDUCED_EC_LEVEL 1
+#define REDUCED_EC_LEVEL 4
 
 #define COMPAT_ECMODE 8
 
@@ -73,7 +73,7 @@ static uint32_t firstneverused=0;
 
 static uint8_t ec_current_version = 0;
 
-static uint8_t MaxECRedundancyLevel = 1;
+static uint8_t MaxECRedundancyLevel = 4;
 
 static uint8_t DefaultECMODE = 8; // = Default number of data parts
 
