@@ -640,7 +640,7 @@ void* write_worker(void *arg) {
 	uint8_t sending_mode;
 	uint8_t wants_pollout;
 	uint8_t recvbuff[21];
-	uint8_t sendbuff[32];
+	uint8_t sendbuff[65];
 #ifdef HAVE_WRITEV
 	struct iovec siov[2];
 #endif
@@ -687,6 +687,9 @@ void* write_worker(void *arg) {
 	uint8_t chunkready;
 	uint8_t unbreakable;
 	uint8_t chunkopflags;
+	uint8_t has_token;
+	uint32_t token_expiry;
+	uint8_t chunk_token[CHUNK_TOKEN_SIZE];
 	int status;
 	char csstrip[STRIPSIZE];
 	uint8_t waitforstatus;
@@ -797,11 +800,23 @@ void* write_worker(void *arg) {
 		version = 0;
 		chunkid = 0;
 		csdataver = 0;
+		has_token = 0;
+		token_expiry = 0;
 
 		// mfs_log(MFSLOG_SYSLOG,MFSLOG_DEBUG,"file: %"PRIu32", index: %"PRIu16" - debug1",inode,chindx);
 		// get chunk data from master
 //		start = monotonic_seconds();
 		wrstatus = fs_writechunk(inode,chindx,chunkopflags,&csdataver,&mfleng,&chunkid,&version,&csdata,&csdatasize);
+
+		if (wrstatus==MFS_STATUS_OK && csdataver==4 && csdatasize>=(4+CHUNK_TOKEN_SIZE)) {
+			const uint8_t *tptr = csdata;
+			token_expiry = get32bit(&tptr);
+			memcpy(chunk_token,tptr,CHUNK_TOKEN_SIZE);
+			has_token = 1;
+			csdata = csdata + 4 + CHUNK_TOKEN_SIZE;
+			csdatasize -= (4 + CHUNK_TOKEN_SIZE);
+			csdataver = 2;
+		}
 
 // rdstatus potential results:
 // MFS_ERROR_NOCHUNK - internal error (can't be repaired)
@@ -874,7 +889,11 @@ void* write_worker(void *arg) {
 			continue;	// get next job
 		}
 
-		chunksdatacache_insert(inode,chindx,chunkid,version,csdataver,csdata,csdatasize);
+		if (has_token) {
+			chunksdatacache_insert_token(inode,chindx,chunkid,version,csdataver,csdata,csdatasize,token_expiry,chunk_token);
+		} else {
+			chunksdatacache_insert(inode,chindx,chunkid,version,csdataver,csdata,csdatasize);
+		}
 #ifdef MFSMOUNT
 		fdcache_invalidate(inode);
 #endif
@@ -1097,7 +1116,11 @@ void* write_worker(void *arg) {
 		wptr = sendbuff;
 
 		put32bit(&wptr,CLTOCS_WRITE);
-		if (chainminver>=VERSION2INT(1,7,32)) {
+		if (has_token && chainminver>=VERSION2INT(1,7,32)) {
+			put32bit(&wptr,13+4+CHUNK_TOKEN_SIZE+cschainsize);
+			put8bit(&wptr,2);
+			hdrtosend = 21+4+CHUNK_TOKEN_SIZE;
+		} else if (chainminver>=VERSION2INT(1,7,32)) {
 			put32bit(&wptr,13+cschainsize);
 			put8bit(&wptr,1);
 			hdrtosend = 21;
@@ -1108,6 +1131,11 @@ void* write_worker(void *arg) {
 
 		put64bit(&wptr,chunkid);
 		put32bit(&wptr,version);
+		if (has_token && chainminver>=VERSION2INT(1,7,32)) {
+			put32bit(&wptr,token_expiry);
+			memcpy(wptr,chunk_token,CHUNK_TOKEN_SIZE);
+			wptr += CHUNK_TOKEN_SIZE;
+		}
 		sending_mode = 1;
 		wants_pollout = 1;
 // debug:	mfs_log(MFSLOG_SYSLOG,MFSLOG_DEBUG,"writeworker: init packet prepared");

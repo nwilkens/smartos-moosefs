@@ -597,7 +597,7 @@ typedef struct _data_source {
 	uint32_t sent,tosend,received;
 	double lastrcvd,lastsend;
 	uint8_t recvbuff[20];
-	uint8_t sendbuff[29];
+	uint8_t sendbuff[65];
 	uint32_t reccmd;
 	uint32_t recleng;
 	data_source_state state;
@@ -655,6 +655,9 @@ void* read_worker(void *arg) {
 	uint32_t csdatasize;
 	uint8_t csdataver;
 	uint8_t rdstatus;
+	uint8_t has_token;
+	uint32_t token_expiry;
+	uint8_t chunk_token[CHUNK_TOKEN_SIZE];
 	int status;
 	char csstrip[STRIPSIZE];
 	uint8_t reqsend;
@@ -763,7 +766,9 @@ void* read_worker(void *arg) {
 		version = 0;
 		csdataver = 0;
 		csdatasize = 1024; // pipebuff here is used as a temporary data buffer
-		if (master_version()>=VERSION2INT(3,0,74) && chunksdatacache_find(inode,chindx,&chunkid,&version,&csdataver,pipebuff,&csdatasize)) {
+		has_token = 0;
+		token_expiry = 0;
+		if (master_version()>=VERSION2INT(3,0,74) && chunksdatacache_find_token(inode,chindx,&chunkid,&version,&csdataver,pipebuff,&csdatasize,&has_token,&token_expiry,chunk_token)) {
 			rdstatus = MFS_STATUS_OK;
 			csdata = pipebuff;
 			zassert(pthread_mutex_lock(&(ind->lock)));
@@ -784,7 +789,17 @@ void* read_worker(void *arg) {
 #endif
 			rdstatus = fs_readchunk(inode,chindx,0,&csdataver,&mfleng,&chunkid,&version,&csdata,&csdatasize);
 			if (rdstatus==MFS_STATUS_OK) {
-				chunksdatacache_insert(inode,chindx,chunkid,version,csdataver,csdata,csdatasize);
+				if ((csdataver==4 || csdataver==5) && csdatasize>=(4+CHUNK_TOKEN_SIZE)) {
+					const uint8_t *tptr = csdata;
+					token_expiry = get32bit(&tptr);
+					memcpy(chunk_token,tptr,CHUNK_TOKEN_SIZE);
+					has_token = 1;
+					chunksdatacache_insert_token(inode,chindx,chunkid,version,2,csdata+(4+CHUNK_TOKEN_SIZE),csdatasize-(4+CHUNK_TOKEN_SIZE),token_expiry,chunk_token);
+					csdata = csdata + 4 + CHUNK_TOKEN_SIZE;
+					csdatasize -= (4 + CHUNK_TOKEN_SIZE);
+				} else {
+					chunksdatacache_insert(inode,chindx,chunkid,version,csdataver,csdata,csdatasize);
+				}
 				zassert(pthread_mutex_lock(&(ind->lock)));
 				if (rreq->mode == BREAK) {
 					zassert(pthread_mutex_unlock(&(ind->lock)));
@@ -798,6 +813,9 @@ void* read_worker(void *arg) {
 #ifdef RDEBUG
 			RDEBUG_READWORKER_COMMON("fs_readchunk (after): mfleng: %"PRIu64" ; chunkid: %016"PRIX64" ; version: %"PRIu32" ; status:%"PRIu8,mfleng,chunkid,version,rdstatus)
 #endif
+		}
+		if (csdataver==4 || csdataver==5) {
+			csdataver = 2;
 		}
 
 // rdstatus potential results:
@@ -1423,7 +1441,11 @@ void* read_worker(void *arg) {
 					if (datasrc[part].endpos>datasrc[part].currpos) {
 						wptr = datasrc[part].sendbuff;
 						put32bit(&wptr,CLTOCS_READ);
-						if (datasrc[part].csver>=VERSION2INT(1,7,32)) {
+						if (has_token && datasrc[part].csver>=VERSION2INT(1,7,32)) {
+							put32bit(&wptr,21+4+CHUNK_TOKEN_SIZE);
+							put8bit(&wptr,2);
+							datasrc[part].tosend = 29+4+CHUNK_TOKEN_SIZE;
+						} else if (datasrc[part].csver>=VERSION2INT(1,7,32)) {
 							put32bit(&wptr,21);
 							put8bit(&wptr,1);
 							datasrc[part].tosend = 29;
@@ -1441,6 +1463,11 @@ void* read_worker(void *arg) {
 						put32bit(&wptr,version);
 						put32bit(&wptr,datasrc[part].currpos);
 						put32bit(&wptr,datasrc[part].endpos-datasrc[part].currpos);
+						if (has_token && datasrc[part].csver>=VERSION2INT(1,7,32)) {
+							put32bit(&wptr,token_expiry);
+							memcpy(wptr,chunk_token,CHUNK_TOKEN_SIZE);
+							wptr += CHUNK_TOKEN_SIZE;
+						}
 						datasrc[part].sent = 0;
 					} else {
 						datasrc[part].gotstatus = 1;

@@ -58,6 +58,8 @@ mfsmaster_SOURCES = \
 	../mfscommon/cfg.c ../mfscommon/cfg.h \
 	../mfscommon/random.c ../mfscommon/random.h \
 	../mfscommon/md5.c ../mfscommon/md5.h \
+	../mfscommon/sha256.c ../mfscommon/sha256.h \
+	../mfscommon/chunktoken.c ../mfscommon/chunktoken.h \
 	../mfscommon/crc.c ../mfscommon/crc.h \
 	../mfscommon/crc_pclmul.c ../mfscommon/crc_pclmul.h \
 	../mfscommon/sockets.c ../mfscommon/sockets.h \

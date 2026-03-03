@@ -4017,7 +4017,15 @@ uint8_t fs_readchunk(uint32_t inode,uint32_t indx,uint8_t chunkopflags,uint8_t *
 	} else {
 		if (i&1) {
 			*csdataver = get8bit(&rptr);
-			if (i<21 || ((*csdataver)==1 && ((i-21)%10)!=0) || ((*csdataver)==2 && ((i-21)%14)!=0) || ((*csdataver)==3 && i!=21+14*8 && i!=21+14*4)) {
+			if ((*csdataver)==4 || (*csdataver)==5) {
+				/* protocolid 4/5: includes token (expiry:4 + token:32 = 36 bytes) */
+				if (i<(21+4+CHUNK_TOKEN_SIZE) || ((i-21-4-CHUNK_TOKEN_SIZE)%14)!=0) {
+					ret = MFS_ERROR_IO;
+				} else {
+					*csdatasize = i-21; /* includes token bytes - caller will parse them */
+					ret = MFS_STATUS_OK;
+				}
+			} else if (i<21 || ((*csdataver)==1 && ((i-21)%10)!=0) || ((*csdataver)==2 && ((i-21)%14)!=0) || ((*csdataver)==3 && i!=21+14*8 && i!=21+14*4)) {
 				ret = MFS_ERROR_IO;
 			} else {
 				*csdatasize = i-21;
@@ -4075,7 +4083,15 @@ uint8_t fs_writechunk(uint32_t inode,uint32_t indx,uint8_t chunkopflags,uint8_t 
 	} else {
 		if (i&1) {
 			*csdataver = get8bit(&rptr);
-			if (i<21 || ((*csdataver)==1 && ((i-21)%10)!=0) || ((*csdataver)==2 && ((i-21)%14)!=0)) {
+			if ((*csdataver)==4) {
+				/* protocolid 4: includes token (expiry:4 + token:32 = 36 bytes) */
+				if (i<(21+4+CHUNK_TOKEN_SIZE) || ((i-21-4-CHUNK_TOKEN_SIZE)%14)!=0) {
+					ret = MFS_ERROR_IO;
+				} else {
+					*csdatasize = i-21;
+					ret = MFS_STATUS_OK;
+				}
+			} else if (i<21 || ((*csdataver)==1 && ((i-21)%10)!=0) || ((*csdataver)==2 && ((i-21)%14)!=0)) {
 				ret = MFS_ERROR_IO;
 			} else {
 				*csdatasize = i-21;

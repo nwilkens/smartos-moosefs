@@ -1,8 +1,8 @@
-TESTS = mfstest_datapack mfstest_clocks mfstest_crc32 mfstest_bitops mfstest_delayrun
+TESTS = mfstest_datapack mfstest_clocks mfstest_crc32 mfstest_bitops mfstest_delayrun mfstest_chunktoken
 
 AM_CPPFLAGS = -I$(top_srcdir)/mfscommon
 
-noinst_PROGRAMS = $(TESTS) mfsbench_hotpath mfsbench_io
+noinst_PROGRAMS = $(TESTS) mfsbench_hotpath
 
 mfstest_datapack_SOURCES = \
 	mfstest_datapack.c mfstest.h \
@@ -44,6 +44,14 @@ mfstest_delayrun_LDADD = $(PTHREAD_LIBS)
 mfstest_delayrun_CFLAGS = $(PTHREAD_CFLAGS) -D_USE_PTHREADS
 mfstest_delayrun_CPPFLAGS = $(PTHREAD_CPPFLAGS) -I$(top_srcdir)/mfscommon
 
+mfstest_chunktoken_SOURCES = \
+	mfstest_chunktoken.c mfstest.h \
+	../mfscommon/sha256.h ../mfscommon/sha256.c \
+	../mfscommon/chunktoken.h ../mfscommon/chunktoken.c \
+	../mfscommon/MFSCommunication.h
+
+mfstest_chunktoken_CFLAGS =
+
 mfsbench_hotpath_SOURCES = \
 	mfsbench_hotpath.c \
 	../mfscommon/crc.h ../mfscommon/crc.c \
@@ -57,14 +65,6 @@ mfsbench_hotpath_SOURCES = \
 mfsbench_hotpath_LDADD = $(PTHREAD_LIBS) -lm
 mfsbench_hotpath_CFLAGS = $(PTHREAD_CFLAGS) $(PCLMUL_CFLAGS) -D_USE_PTHREADS
 mfsbench_hotpath_CPPFLAGS = $(PTHREAD_CPPFLAGS) -I$(top_srcdir)/mfscommon
-
-mfsbench_io_SOURCES = \
-	mfsbench_io.c \
-	../mfscommon/clocks.h ../mfscommon/clocks.c
-
-mfsbench_io_LDADD = $(PTHREAD_LIBS) ../mfsclient/libmfsio.la
-mfsbench_io_CFLAGS = $(PTHREAD_CFLAGS) -D_USE_PTHREADS
-mfsbench_io_CPPFLAGS = $(PTHREAD_CPPFLAGS) -I$(top_srcdir)/mfscommon -I$(top_srcdir)/mfsclient
 
 distclean-local: distclean-am
 	-rm -rf ./$(DEPDIR)

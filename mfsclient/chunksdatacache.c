@@ -22,6 +22,7 @@
 #include <string.h>
 #include <pthread.h>
 
+#include "MFSCommunication.h"
 #include "massert.h"
 
 // #define CHUNKS_MAX_ENTRIES 1000000
@@ -40,6 +41,9 @@ typedef struct _chunks_data_entry {
 	uint8_t csdataver;
 	uint8_t *csdata;
 	uint32_t csdatasize;
+	uint8_t has_token;
+	uint32_t token_expiry;
+	uint8_t token[CHUNK_TOKEN_SIZE];
 	struct _chunks_inode_entry *parent;
 	struct _chunks_data_entry **previnode,*nextinode;
 	struct _chunks_data_entry **prevdata,*nextdata;
@@ -128,6 +132,9 @@ static inline chunks_data_entry* chunks_new_entry(uint32_t inode,uint32_t chindx
 	ca->csdata = NULL;
 	ca->csdatasize = 0;
 	ca->csdataver = 0;
+	ca->has_token = 0;
+	ca->token_expiry = 0;
+	memset(ca->token,0,CHUNK_TOKEN_SIZE);
 	ca->parent = ih;
 	ca->nextinode = ih->data_head;
 	if (ca->nextinode) {
@@ -239,6 +246,51 @@ void chunksdatacache_change(uint32_t inode,uint32_t chindx,uint64_t chunkid,uint
 	pthread_mutex_unlock(&lock);
 }
 
+void chunksdatacache_insert_token(uint32_t inode,uint32_t chindx,uint64_t chunkid,uint32_t version,uint8_t csdataver,const uint8_t *csdata,uint32_t csdatasize,uint32_t token_expiry,const uint8_t token[CHUNK_TOKEN_SIZE]) {
+	chunks_data_entry *ca;
+	uint32_t hash;
+
+	pthread_mutex_lock(&lock);
+	hash = chunks_data_hash_fn(inode,chindx);
+	for (ca = chunks_data_hash[hash] ; ca ; ca=ca->nextdata) {
+		if (ca->inode==inode && ca->chindx==chindx) {
+			break;
+		}
+	}
+
+	if (ca==NULL) {
+		ca = chunks_new_entry(inode,chindx);
+	}
+
+	ca->chunkid = chunkid;
+	ca->version = version;
+	ca->csdataver = csdataver;
+	if (ca->csdatasize==csdatasize) {
+		if (csdatasize>0) {
+			memcpy(ca->csdata,csdata,csdatasize);
+		}
+	} else {
+		if (ca->csdata) {
+			free(ca->csdata);
+		}
+		if (csdatasize>0) {
+			ca->csdata = malloc(csdatasize);
+			memcpy(ca->csdata,csdata,csdatasize);
+		} else {
+			ca->csdata = NULL;
+		}
+		ca->csdatasize = csdatasize;
+	}
+	if (token!=NULL) {
+		ca->has_token = 1;
+		ca->token_expiry = token_expiry;
+		memcpy(ca->token,token,CHUNK_TOKEN_SIZE);
+	} else {
+		ca->has_token = 0;
+	}
+	pthread_mutex_unlock(&lock);
+}
+
 void chunksdatacache_insert(uint32_t inode,uint32_t chindx,uint64_t chunkid,uint32_t version,uint8_t csdataver,const uint8_t *csdata,uint32_t csdatasize) {
 	chunks_data_entry *ca;
 	uint32_t hash;
@@ -299,6 +351,36 @@ uint8_t chunksdatacache_find(uint32_t inode,uint32_t chindx,uint64_t *chunkid,ui
 			*csdataver = ca->csdataver;
 			memcpy(csdata,ca->csdata,ca->csdatasize);
 			*csdatasize = ca->csdatasize;
+			pthread_mutex_unlock(&lock);
+			return 1;
+		}
+	}
+	pthread_mutex_unlock(&lock);
+	return 0;
+}
+
+uint8_t chunksdatacache_find_token(uint32_t inode,uint32_t chindx,uint64_t *chunkid,uint32_t *version,uint8_t *csdataver,uint8_t *csdata,uint32_t *csdatasize,uint8_t *has_token,uint32_t *token_expiry,uint8_t token[CHUNK_TOKEN_SIZE]) {
+	chunks_data_entry *ca;
+	uint32_t hash;
+
+	pthread_mutex_lock(&lock);
+	hash = chunks_data_hash_fn(inode,chindx);
+	for (ca = chunks_data_hash[hash] ; ca ; ca=ca->nextdata) {
+		if (ca->inode==inode && ca->chindx==chindx) {
+			if (*csdatasize < ca->csdatasize) {
+				pthread_mutex_unlock(&lock);
+				return 0;
+			}
+			*chunkid = ca->chunkid;
+			*version = ca->version;
+			*csdataver = ca->csdataver;
+			memcpy(csdata,ca->csdata,ca->csdatasize);
+			*csdatasize = ca->csdatasize;
+			*has_token = ca->has_token;
+			if (ca->has_token) {
+				*token_expiry = ca->token_expiry;
+				memcpy(token,ca->token,CHUNK_TOKEN_SIZE);
+			}
 			pthread_mutex_unlock(&lock);
 			return 1;
 		}

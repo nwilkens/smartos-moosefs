@@ -33,6 +33,8 @@ void matoclserv_fuse_invalidate_chunk_cache(void);
 int matoclserv_no_more_pending_jobs(void);
 void matoclserv_disconnect_all(void);
 void matoclserv_close_lsock(void);
+const uint8_t* matoclserv_get_chunk_token_secret(void);
+uint8_t matoclserv_chunk_token_enabled(void);
 int matoclserv_init(void);
 
 #endif

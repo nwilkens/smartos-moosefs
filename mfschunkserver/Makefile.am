@@ -34,6 +34,8 @@ mfschunkserver_SOURCES = \
 	../mfscommon/timeparser.c ../mfscommon/timeparser.h \
 	../mfscommon/cfg.c ../mfscommon/cfg.h \
 	../mfscommon/md5.c ../mfscommon/md5.h \
+	../mfscommon/sha256.c ../mfscommon/sha256.h \
+	../mfscommon/chunktoken.c ../mfscommon/chunktoken.h \
 	../mfscommon/random.c ../mfscommon/random.h \
 	../mfscommon/pcqueue.c ../mfscommon/pcqueue.h \
 	../mfscommon/lwthread.c ../mfscommon/lwthread.h \

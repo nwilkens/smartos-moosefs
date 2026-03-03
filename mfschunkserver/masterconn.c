@@ -156,9 +156,31 @@ static uint32_t LabelMask = 0;
 
 static uint64_t hddmetaid;
 
+static uint8_t chunk_token_secret[CHUNK_TOKEN_SIZE];
+static uint8_t chunk_token_active = 0;
+
 static int reconnectisneeded = 0;
 
 // static FILE *logfd;
+
+const uint8_t* masterconn_get_chunk_token_secret(void) {
+	return chunk_token_secret;
+}
+
+uint8_t masterconn_chunk_token_enabled(void) {
+	return chunk_token_active;
+}
+
+static void masterconn_set_chunk_token_secret(masterconn *eptr,const uint8_t *data,uint32_t length) {
+	(void)eptr;
+	if (length!=CHUNK_TOKEN_SIZE) {
+		mfs_log(MFSLOG_SYSLOG,MFSLOG_WARNING,"MATOCS_SET_CHUNK_TOKEN_SECRET - wrong size (%"PRIu32"/%d)",length,CHUNK_TOKEN_SIZE);
+		return;
+	}
+	memcpy(chunk_token_secret,data,CHUNK_TOKEN_SIZE);
+	chunk_token_active = 1;
+	mfs_log(MFSLOG_SYSLOG,MFSLOG_INFO,"chunk access token secret received from master");
+}
 
 void masterconn_stats(uint64_t *bin,uint64_t *bout) {
 	*bin = stats_bytesin;
@@ -1428,6 +1450,9 @@ void masterconn_gotpacket(masterconn *eptr,uint32_t type,const uint8_t *data,uin
 		case MATOCS_MASTER_ACK:
 			eptr->masteraddrvalid = 1;
 			masterconn_master_ack(eptr,data,length);
+			break;
+		case MATOCS_SET_CHUNK_TOKEN_SECRET:
+			masterconn_set_chunk_token_secret(eptr,data,length);
 			break;
 		case MATOCS_REGISTER_FIRST:
 			masterconn_register_first(eptr,data,length);

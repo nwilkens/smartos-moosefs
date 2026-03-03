@@ -169,8 +169,9 @@
 #define MFS_ERROR_EBADF           61    // Bad file descriptor
 #define MFS_ERROR_EFBIG           62    // File too large
 #define MFS_ERROR_EISDIR          63    // Is a directory
+#define MFS_ERROR_BADTOKEN        64    // Invalid or expired chunk access token
 
-#define MFS_ERROR_MAX             64
+#define MFS_ERROR_MAX             65
 
 #define MFS_ERROR_STRINGS \
 	"OK", \
@@ -237,6 +238,7 @@
 	"Bad file descriptor", \
 	"File too large", \
 	"Is a directory", \
+	"Invalid or expired chunk access token", \
 	"Unknown MFS error"
 
 #define MFSLOG_DEBUG                       0
@@ -1147,8 +1149,13 @@
 #define CSTOMA_LOCALSPLIT (PROTO_BASE+181)
 // chunkid:64 version:32 status:8
 
+// 0x00BE
+#define MATOCS_SET_CHUNK_TOKEN_SECRET (PROTO_BASE+190)
+// secret:CHUNK_TOKEN_SIZE - master sends token signing secret to chunkserver after registration
 
-
+// Chunk access token (HMAC-SHA256)
+#define CHUNK_TOKEN_SIZE 32
+#define CHUNK_TOKEN_TTL 300
 
 // CHUNKSERVER <-> CLIENT/CHUNKSERVER
 
@@ -1156,6 +1163,7 @@
 #define CLTOCS_READ (PROTO_BASE+200)
 // chunkid:64 version:32 offset:32 size:32
 // protocolid:8 chunkid:64 version:32 offset:32 size:32 (both versions >= 1.7.32)
+// protocolid:8 chunkid:64 version:32 offset:32 size:32 expiry:32 token:CHUNK_TOKEN_SIZE (protocolid==2, token-enabled)
 
 // 0x00C9
 #define CSTOCL_READ_STATUS (PROTO_BASE+201)
@@ -1169,6 +1177,7 @@
 #define CLTOCS_WRITE (PROTO_BASE+210)
 // chunkid:64 version:32 N*[ ip:32 port:16 ]
 // protocolid:8 chunkid:64 version:32 N*[ ip:32 port:16 ] (both versions >= 1.7.32)
+// protocolid:8 chunkid:64 version:32 expiry:32 token:CHUNK_TOKEN_SIZE N*[ ip:32 port:16 ] (protocolid==2, token-enabled)
 
 // 0x00D3
 #define CSTOCL_WRITE_STATUS (PROTO_BASE+211)
@@ -1693,6 +1702,7 @@
 // msgid:32 protocolid:8 length:64 chunkid:64 version:32 N * [ ip:32 port:16 cs_ver:32 ] (master and client both versions >= 1.7.32 - protocolid==1)
 // msgid:32 protocolid:8 length:64 chunkid:64 version:32 N * [ ip:32 port:16 cs_ver:32 labelmask:32 ] (master and client both versions >= 3.0.10 - protocolid==2)
 // msgid:32 protocolid:8 length:64 chunkid:64 version:32 (4 or 8) * [ ip:32 port:16 cs_ver:32 labelmask:32 ] (master and client both versions >= 4.0.0 and chunk is split into eight parts - protocolid==3)
+// msgid:32 protocolid:8 length:64 chunkid:64 version:32 expiry:32 token:CHUNK_TOKEN_SIZE N * [ ip:32 port:16 cs_ver:32 labelmask:32 ] (chunk access token enabled - protocolid==4)
 
 // 0x01B2
 #define CLTOMA_FUSE_WRITE_CHUNK (PROTO_BASE+434)
@@ -1706,6 +1716,7 @@
 // msgid:32 length:64 chunkid:64 version:32 N*[ ip:32 port:16 ]
 // msgid:32 protocolid:8 length:64 chunkid:64 version:32 N * [ ip:32 port:16 cs_ver:32 ] (master and client both versions >= 1.7.32 - protocolid==1)
 // msgid:32 protocolid:8 length:64 chunkid:64 version:32 N * [ ip:32 port:16 cs_ver:32 labelmask:32 ] (master and client both versions >= 3.0.10 - protocolid==2)
+// msgid:32 protocolid:8 length:64 chunkid:64 version:32 expiry:32 token:CHUNK_TOKEN_SIZE N * [ ip:32 port:16 cs_ver:32 labelmask:32 ] (chunk access token enabled - protocolid==4)
 
 // 0x01B4
 #define CLTOMA_FUSE_WRITE_CHUNK_END (PROTO_BASE+436)

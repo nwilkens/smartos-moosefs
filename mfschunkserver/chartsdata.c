@@ -60,6 +60,7 @@ void chartsdata_refresh(void) {
 	uint32_t chcount,tdchcount;
 	uint32_t copychunks,ec4chunks,ec8chunks;
 	uint32_t hddok,hddmfr,hdddmg,usagediff;
+	uint32_t tokaccept,tokreject;
 
 	for (i=0 ; i<CHARTS ; i++) {
 		data[i] = CHARTS_NODATA;
@@ -81,11 +82,13 @@ void chartsdata_refresh(void) {
 	job_stats(&jobs);
 	data[CHARTS_LOAD] = jobs;
 	csserv_stats(data+CHARTS_CSSERVIN,data+CHARTS_CSSERVOUT);
-	mainserv_stats(&bin,&bout,&opr,&opw);
+	mainserv_stats(&bin,&bout,&opr,&opw,&tokaccept,&tokreject);
 	data[CHARTS_CSSERVIN] += bin;
 	data[CHARTS_CSSERVOUT] += bout;
 	data[CHARTS_HLOPR] = opr;
 	data[CHARTS_HLOPW] = opw;
+	data[CHARTS_TOKACCEPT] = tokaccept;
+	data[CHARTS_TOKREJECT] = tokreject;
 	hdd_stats(&bin,&bout,&opr,&opw,&dbr,&dbw,&dopr,&dopw,&movl,&movh,data+CHARTS_RTIME,data+CHARTS_WTIME);
 	data[CHARTS_HDRBYTESR] = bin;
 	data[CHARTS_HDRBYTESW] = bout;

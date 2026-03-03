@@ -36,6 +36,8 @@ uint16_t masterconn_getmasterport(void);
 // void masterconn_send_space(uint64_t usedspace,uint64_t totalspace,uint32_t chunkcount,uint64_t tdusedspace,uint64_t tdtotalspace,uint32_t tdchunkcount);
 void masterconn_reportload(void);
 void masterconn_forcereconnect(void);
+const uint8_t* masterconn_get_chunk_token_secret(void);
+uint8_t masterconn_chunk_token_enabled(void);
 int masterconn_init(void);
 
 #endif

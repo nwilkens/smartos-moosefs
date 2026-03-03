@@ -265,12 +265,12 @@ void csserv_read_init(csserventry *eptr,const uint8_t *data,uint32_t length) {
 	eptr->state = READ;
 	eptr->jobid = job_serv_read(csserv_iothread_finished,eptr,eptr->sock,data,length);
 	if (eptr->jobid==0) { // not done - queue full
-		if (length!=20 && length!=21) {
-			mfs_log(MFSLOG_SYSLOG,MFSLOG_WARNING,"CLTOCS_READ - wrong size (%"PRIu32"/20|21)",length);
+		if (length!=20 && length!=21 && length!=(21+4+CHUNK_TOKEN_SIZE)) {
+			mfs_log(MFSLOG_SYSLOG,MFSLOG_WARNING,"CLTOCS_READ - wrong size (%"PRIu32"/20|21|%d)",length,21+4+CHUNK_TOKEN_SIZE);
 			eptr->state = CLOSE;
 			return;
 		}
-		if (length==21) {
+		if (length>=21) {
 			data++; // skip proto version
 		}
 		ptr = csserv_create_packet(eptr,CSTOCL_READ_STATUS,8+1);
@@ -288,8 +288,15 @@ void csserv_write_init(csserventry *eptr,const uint8_t *data,uint32_t length) {
 	eptr->jobid = job_serv_write(csserv_iothread_finished,eptr,eptr->sock,data,length);
 	if (eptr->jobid==0) { // not done - queue full
 		if (length&1) {
-			if (length<13 || ((length-13)%6)!=0) {
-				mfs_log(MFSLOG_SYSLOG,MFSLOG_WARNING,"CLTOCS_WRITE - wrong size (%"PRIu32"/13+N*6)",length);
+			uint32_t base = 13;
+			uint32_t remainder;
+			uint8_t pver = data[0];
+			if (pver==2) {
+				base += 4 + CHUNK_TOKEN_SIZE;
+			}
+			remainder = length - base;
+			if (length<base || (remainder%6)!=0) {
+				mfs_log(MFSLOG_SYSLOG,MFSLOG_WARNING,"CLTOCS_WRITE - wrong size (%"PRIu32")",length);
 				eptr->state = CLOSE;
 				return;
 			}

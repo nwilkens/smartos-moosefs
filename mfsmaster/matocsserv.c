@@ -58,6 +58,7 @@
 #include "labelparser.h"
 #include "multilan.h"
 #include "md5.h"
+#include "matoclserv.h"
 #include "bitops.h"
 #include "mfsalloc.h"
 
@@ -2666,6 +2667,11 @@ void matocsserv_register(matocsserventry *eptr,const uint8_t *data,uint32_t leng
 					if (mode) {
 						put64bit(&p,meta_get_id());
 					}
+			}
+			if (matoclserv_chunk_token_enabled()) {
+				uint8_t *p;
+				p = matocsserv_create_packet(eptr,MATOCS_SET_CHUNK_TOKEN_SECRET,CHUNK_TOKEN_SIZE);
+				memcpy(p,matoclserv_get_chunk_token_secret(),CHUNK_TOKEN_SIZE);
 			}
 			eptr->csid = chunk_server_connected(eptr);
 			return;

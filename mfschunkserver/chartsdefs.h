@@ -70,8 +70,10 @@
 #define CHARTS_HDD_MFR 45
 #define CHARTS_HDD_DMG 46
 #define CHARTS_USAGE_DIFF 47
+#define CHARTS_TOKACCEPT 48
+#define CHARTS_TOKREJECT 49
 
-#define CHARTS 48
+#define CHARTS 50
 
 #define STRID(a,b,c,d) (((((uint8_t)a)*256U+(uint8_t)b)*256U+(uint8_t)c)*256U+(uint8_t)d)
 
@@ -125,6 +127,8 @@
 	{"hddmfr"       ,STRID('H','D','M','R'),CHARTS_MODE_MAX,0,CHARTS_SCALE_NONE ,   1,    1}, \
 	{"hdddmg"       ,STRID('H','D','D','M'),CHARTS_MODE_MAX,0,CHARTS_SCALE_NONE ,   1,    1}, \
 	{"udiff"        ,STRID('U','D','I','F'),CHARTS_MODE_MAX,0,CHARTS_SCALE_MILI ,   1,    1}, \
+	{"tokaccept"    ,STRID('T','K','A','C'),CHARTS_MODE_ADD,0,CHARTS_SCALE_NONE ,   1,    1}, \
+	{"tokreject"    ,STRID('T','K','R','J'),CHARTS_MODE_ADD,0,CHARTS_SCALE_NONE ,   1,    1}, \
 	{NULL           ,0                     ,0              ,0,0                 ,   0,    0}  \
 };
 
@@ -148,6 +152,7 @@
 	{"space"        ,STRID('S','P','A','C'),CHARTS_CALC(1)                    ,CHARTS_DIRECT(CHARTS_USPACE)      ,CHARTS_NONE                       ,CHARTS_MODE_MAX,0,CHARTS_SCALE_NONE ,   1, 1}, \
 	{"chunks"       ,STRID('C','H','N','K'),CHARTS_DIRECT(CHARTS_COPYCHUNKS)  ,CHARTS_DIRECT(CHARTS_EC4CHUNKS)   ,CHARTS_DIRECT(CHARTS_EC8CHUNKS)   ,CHARTS_MODE_MAX,0,CHARTS_SCALE_NONE ,   1, 1}, \
 	{"hddcnt"       ,STRID('H','D','C','N'),CHARTS_DIRECT(CHARTS_HDD_OK)      ,CHARTS_DIRECT(CHARTS_HDD_MFR)     ,CHARTS_DIRECT(CHARTS_HDD_DMG)     ,CHARTS_MODE_MAX,0,CHARTS_SCALE_NONE ,   1, 1}, \
+	{"token"        ,STRID('T','O','K','N'),CHARTS_DIRECT(CHARTS_TOKACCEPT)   ,CHARTS_DIRECT(CHARTS_TOKREJECT)   ,CHARTS_NONE                       ,CHARTS_MODE_ADD,0,CHARTS_SCALE_NONE ,   1, 1}, \
 	{NULL           ,0                     ,CHARTS_NONE                       ,CHARTS_NONE                       ,CHARTS_NONE                       ,0              ,0,0                 ,   0, 0}  \
 };
 

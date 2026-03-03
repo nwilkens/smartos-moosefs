@@ -73,6 +73,8 @@
 #include "iptosesid.h"
 #include "mfsalloc.h"
 #include "multilan.h"
+#include "chunktoken.h"
+#include "sha256.h"
 
 #define MaxPacketSize CLTOMA_MAXPACKETSIZE
 
@@ -138,6 +140,8 @@ static int lsock;
 static int32_t lsockpdescpos;
 
 static uint64_t master_processid;
+static uint8_t chunk_token_secret[CHUNK_TOKEN_SIZE];
+static uint8_t chunk_token_enabled = 0;
 
 #define CHUNKHASHSIZE 256
 #define CHUNKHASH(chunkid) ((chunkid)&0xFF)
@@ -212,6 +216,14 @@ static uint32_t stats_mounts_fcnt = 0;
 static uint64_t stats_mounts_brcvd = 0;
 static uint64_t stats_mounts_bsent = 0;
 static uint32_t stats_lcnt = 0;
+
+const uint8_t* matoclserv_get_chunk_token_secret(void) {
+	return chunk_token_secret;
+}
+
+uint8_t matoclserv_chunk_token_enabled(void) {
+	return chunk_token_enabled;
+}
 
 void matoclserv_stats(uint64_t stats[12]) {
 	stats[0] = stats_prcvd;
@@ -354,7 +366,9 @@ static inline int matoclserv_fuse_write_chunk_common(matoclserventry *eptr,uint3
 			fs_writeend(0,0,chunkid,0,NULL);	// ignore status - just do it.
 			return 0;
 		}
-		if (eptr->version>=VERSION2INT(3,0,10)) {
+		if (eptr->version>=VERSION2INT(4,59,0) && chunk_token_enabled) {
+			ptr = matoclserv_create_packet(eptr,MATOCL_FUSE_WRITE_CHUNK,25+CHUNK_TOKEN_SIZE+4+count*14);
+		} else if (eptr->version>=VERSION2INT(3,0,10)) {
 			ptr = matoclserv_create_packet(eptr,MATOCL_FUSE_WRITE_CHUNK,25+count*14);
 		} else if (eptr->version>=VERSION2INT(1,7,32)) {
 			ptr = matoclserv_create_packet(eptr,MATOCL_FUSE_WRITE_CHUNK,25+count*10);
@@ -362,7 +376,9 @@ static inline int matoclserv_fuse_write_chunk_common(matoclserventry *eptr,uint3
 			ptr = matoclserv_create_packet(eptr,MATOCL_FUSE_WRITE_CHUNK,24+count*6);
 		}
 		put32bit(&ptr,msgid);
-		if (eptr->version>=VERSION2INT(3,0,10)) {
+		if (eptr->version>=VERSION2INT(4,59,0) && chunk_token_enabled) {
+			put8bit(&ptr,4); // protocolid==4: token
+		} else if (eptr->version>=VERSION2INT(3,0,10)) {
 			put8bit(&ptr,2);
 		} else if (eptr->version>=VERSION2INT(1,7,32)) {
 			put8bit(&ptr,1);
@@ -370,6 +386,12 @@ static inline int matoclserv_fuse_write_chunk_common(matoclserventry *eptr,uint3
 		put64bit(&ptr,fleng);
 		put64bit(&ptr,chunkid);
 		put32bit(&ptr,version);
+		if (eptr->version>=VERSION2INT(4,59,0) && chunk_token_enabled) {
+			uint32_t expiry = (uint32_t)time(NULL) + CHUNK_TOKEN_TTL;
+			put32bit(&ptr,expiry);
+			chunk_token_generate(chunk_token_secret,chunkid,version,expiry,ptr);
+			ptr += CHUNK_TOKEN_SIZE;
+		}
 		if (count>0) {
 			if (eptr->version>=VERSION2INT(3,0,10)) {
 				memcpy(ptr,cs_data,count*14);
@@ -453,7 +475,9 @@ static inline int matoclserv_fuse_read_chunk_common(matoclserventry *eptr,uint32
 		return 0;
 	}
 	dcm_access(inode,sessions_get_id(eptr->sesdata));
-	if (eptr->version>=VERSION2INT(3,0,10)) {
+	if (eptr->version>=VERSION2INT(4,59,0) && chunk_token_enabled) {
+		ptr = matoclserv_create_packet(eptr,MATOCL_FUSE_READ_CHUNK,25+CHUNK_TOKEN_SIZE+4+count*14);
+	} else if (eptr->version>=VERSION2INT(3,0,10)) {
 		ptr = matoclserv_create_packet(eptr,MATOCL_FUSE_READ_CHUNK,25+count*14);
 	} else if (eptr->version>=VERSION2INT(1,7,32)) {
 		ptr = matoclserv_create_packet(eptr,MATOCL_FUSE_READ_CHUNK,25+count*10);
@@ -461,7 +485,13 @@ static inline int matoclserv_fuse_read_chunk_common(matoclserventry *eptr,uint32
 		ptr = matoclserv_create_packet(eptr,MATOCL_FUSE_READ_CHUNK,24+count*6);
 	}
 	put32bit(&ptr,msgid);
-	if (eptr->version>=VERSION2INT(3,0,10)) {
+	if (eptr->version>=VERSION2INT(4,59,0) && chunk_token_enabled) {
+		if (split) {
+			put8bit(&ptr,5); // protocolid==5: token + split
+		} else {
+			put8bit(&ptr,4); // protocolid==4: token
+		}
+	} else if (eptr->version>=VERSION2INT(3,0,10)) {
 		if (split) {
 			put8bit(&ptr,3);
 		} else {
@@ -473,6 +503,12 @@ static inline int matoclserv_fuse_read_chunk_common(matoclserventry *eptr,uint32
 	put64bit(&ptr,fleng);
 	put64bit(&ptr,chunkid);
 	put32bit(&ptr,version);
+	if (eptr->version>=VERSION2INT(4,59,0) && chunk_token_enabled) {
+		uint32_t expiry = (uint32_t)time(NULL) + CHUNK_TOKEN_TTL;
+		put32bit(&ptr,expiry);
+		chunk_token_generate(chunk_token_secret,chunkid,version,expiry,ptr);
+		ptr += CHUNK_TOKEN_SIZE;
+	}
 	if (count>0) {
 		if (eptr->version>=VERSION2INT(3,0,10)) {
 			memcpy(ptr,cs_data,count*14);
@@ -744,7 +780,9 @@ void matoclserv_chunk_status(uint64_t chunkid,uint8_t status) {
 			fs_rollback(inode,indx,prevchunkid,chunkid);	// ignore status - it's error anyway
 			return;
 		}
-		if (eptr->version>=VERSION2INT(3,0,10)) {
+		if (eptr->version>=VERSION2INT(4,59,0) && chunk_token_enabled) {
+			ptr = matoclserv_create_packet(eptr,MATOCL_FUSE_WRITE_CHUNK,25+CHUNK_TOKEN_SIZE+4+count*14);
+		} else if (eptr->version>=VERSION2INT(3,0,10)) {
 			ptr = matoclserv_create_packet(eptr,MATOCL_FUSE_WRITE_CHUNK,25+count*14);
 		} else if (eptr->version>=VERSION2INT(1,7,32)) {
 			ptr = matoclserv_create_packet(eptr,MATOCL_FUSE_WRITE_CHUNK,25+count*10);
@@ -752,7 +790,9 @@ void matoclserv_chunk_status(uint64_t chunkid,uint8_t status) {
 			ptr = matoclserv_create_packet(eptr,MATOCL_FUSE_WRITE_CHUNK,24+count*6);
 		}
 		put32bit(&ptr,msgid);
-		if (eptr->version>=VERSION2INT(3,0,10)) {
+		if (eptr->version>=VERSION2INT(4,59,0) && chunk_token_enabled) {
+			put8bit(&ptr,4);
+		} else if (eptr->version>=VERSION2INT(3,0,10)) {
 			put8bit(&ptr,2);
 		} else if (eptr->version>=VERSION2INT(1,7,32)) {
 			put8bit(&ptr,1);
@@ -760,6 +800,12 @@ void matoclserv_chunk_status(uint64_t chunkid,uint8_t status) {
 		put64bit(&ptr,fleng);
 		put64bit(&ptr,chunkid);
 		put32bit(&ptr,version);
+		if (eptr->version>=VERSION2INT(4,59,0) && chunk_token_enabled) {
+			uint32_t expiry = (uint32_t)time(NULL) + CHUNK_TOKEN_TTL;
+			put32bit(&ptr,expiry);
+			chunk_token_generate(chunk_token_secret,chunkid,version,expiry,ptr);
+			ptr += CHUNK_TOKEN_SIZE;
+		}
 		if (count>0) {
 			if (eptr->version>=VERSION2INT(3,0,10)) {
 				memcpy(ptr,cs_data,count*14);
@@ -7466,6 +7512,26 @@ int matoclserv_init(void) {
 	master_processid = time(NULL);
 	master_processid <<= 32;
 	master_processid |= random();
+
+	/* Initialize chunk access token secret */
+	if (cfg_isdefined("CHUNK_TOKEN_SECRET")) {
+		char *secretstr = cfg_getstr("CHUNK_TOKEN_SECRET","");
+		if (strlen(secretstr) > 0) {
+			sha256ctx sctx;
+			sha256_init(&sctx);
+			sha256_update(&sctx,(const uint8_t*)secretstr,(uint32_t)strlen(secretstr));
+			sha256_final(chunk_token_secret,&sctx);
+			chunk_token_enabled = 1;
+			mfs_log(MFSLOG_SYSLOG_STDERR,MFSLOG_INFO,"chunk access tokens enabled");
+		}
+		free(secretstr);
+	}
+	if (!chunk_token_enabled) {
+		/* Generate a random secret so tokens can still be generated
+		   but don't require them (backward compat) */
+		rndbuff(chunk_token_secret,CHUNK_TOKEN_SIZE);
+		mfs_log(MFSLOG_SYSLOG_STDERR,MFSLOG_INFO,"chunk access tokens: secret generated (set CHUNK_TOKEN_SECRET in config to enable enforcement)");
+	}
 
 	matoclserv_reload_common();
 

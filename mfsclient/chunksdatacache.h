@@ -21,13 +21,16 @@
 #define _CHUNKSDATACACHE_H_
 
 #include <inttypes.h>
+#include "MFSCommunication.h"
 
 void chunksdatacache_clear_inode(uint32_t inode,uint32_t chindx);
 void chunksdatacache_invalidate(uint32_t inode,uint32_t chindx);
 uint8_t chunksdatacache_check(uint32_t inode,uint32_t chindx,uint64_t chunkid,uint32_t version);
 void chunksdatacache_change(uint32_t inode,uint32_t chindx,uint64_t chunkid,uint32_t version);
 void chunksdatacache_insert(uint32_t inode,uint32_t chindx,uint64_t chunkid,uint32_t version,uint8_t csdataver,const uint8_t *csdata,uint32_t csdatasize);
+void chunksdatacache_insert_token(uint32_t inode,uint32_t chindx,uint64_t chunkid,uint32_t version,uint8_t csdataver,const uint8_t *csdata,uint32_t csdatasize,uint32_t token_expiry,const uint8_t token[CHUNK_TOKEN_SIZE]);
 uint8_t chunksdatacache_find(uint32_t inode,uint32_t chindx,uint64_t *chunkid,uint32_t *version,uint8_t *csdataver,uint8_t *csdata,uint32_t *csdatasize);
+uint8_t chunksdatacache_find_token(uint32_t inode,uint32_t chindx,uint64_t *chunkid,uint32_t *version,uint8_t *csdataver,uint8_t *csdata,uint32_t *csdatasize,uint8_t *has_token,uint32_t *token_expiry,uint8_t token[CHUNK_TOKEN_SIZE]);
 void chunksdatacache_cleanup(void);
 void chunksdatacache_term(void);
 void chunksdatacache_init(void);

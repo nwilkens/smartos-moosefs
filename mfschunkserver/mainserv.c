@@ -54,6 +54,8 @@
 #endif
 
 #include "crc.h" // tests only
+#include "chunktoken.h"
+#include "masterconn.h"
 
 
 #define SERV_TIMEOUT 5000
@@ -100,23 +102,31 @@ static uint64_t stats_bytesin=0;
 static uint64_t stats_bytesout=0;
 static uint32_t stats_hlopr=0;
 static uint32_t stats_hlopw=0;
+static uint32_t stats_tokaccept=0;
+static uint32_t stats_tokreject=0;
 
-void mainserv_stats(uint64_t *bin,uint64_t *bout,uint32_t *hlopr,uint32_t *hlopw) {
+void mainserv_stats(uint64_t *bin,uint64_t *bout,uint32_t *hlopr,uint32_t *hlopw,uint32_t *tokaccept,uint32_t *tokreject) {
 #ifdef HAVE___SYNC_FETCH_AND_OP
 	*bin = __sync_fetch_and_and(&stats_bytesin,0);
 	*bout = __sync_fetch_and_and(&stats_bytesout,0);
 	*hlopr = __sync_fetch_and_and(&stats_hlopr,0);
 	*hlopw = __sync_fetch_and_and(&stats_hlopw,0);
+	*tokaccept = __sync_fetch_and_and(&stats_tokaccept,0);
+	*tokreject = __sync_fetch_and_and(&stats_tokreject,0);
 #else
 	zassert(pthread_mutex_lock(&statslock));
 	*bin = stats_bytesin;
 	*bout = stats_bytesout;
 	*hlopr = stats_hlopr;
 	*hlopw = stats_hlopw;
+	*tokaccept = stats_tokaccept;
+	*tokreject = stats_tokreject;
 	stats_bytesin = 0;
 	stats_bytesout = 0;
 	stats_hlopr = 0;
 	stats_hlopw = 0;
+	stats_tokaccept = 0;
+	stats_tokreject = 0;
 	zassert(pthread_mutex_unlock(&statslock));
 #endif
 }
@@ -356,11 +366,11 @@ uint8_t mainserv_read(int sock,const uint8_t *data,uint32_t length) {
 	uint32_t cmd,leng;
 	sock_nops sn;
 
-	if (length!=20 && length!=21) {
-		mfs_log(MFSLOG_SYSLOG,MFSLOG_WARNING,"CLTOCS_READ - wrong size (%"PRIu32"/20|21)",length);
+	if (length!=20 && length!=21 && length!=(21+4+CHUNK_TOKEN_SIZE)) {
+		mfs_log(MFSLOG_SYSLOG,MFSLOG_WARNING,"CLTOCS_READ - wrong size (%"PRIu32"/20|21|%d)",length,21+4+CHUNK_TOKEN_SIZE);
 		return 0;
 	}
-	if (length==21) {
+	if (length>=21) {
 		protover = get8bit(&data);
 		if (protover) {
 			mainserv_sock_nop_init(&sn,sock);
@@ -372,6 +382,51 @@ uint8_t mainserv_read(int sock,const uint8_t *data,uint32_t length) {
 	version = get32bit(&data);
 	offset = get32bit(&data);
 	size = get32bit(&data);
+	/* token validation */
+	if (masterconn_chunk_token_enabled()) {
+		if (length==(21+4+CHUNK_TOKEN_SIZE) && protover==2) {
+			uint32_t expiry;
+			const uint8_t *token;
+			uint32_t now;
+			expiry = get32bit(&data);
+			token = data;
+			now = (uint32_t)time(NULL);
+			if (!chunk_token_validate(masterconn_get_chunk_token_secret(),chunkid,version,expiry,token,now)) {
+				mfs_log(MFSLOG_SYSLOG,MFSLOG_WARNING,"CLTOCS_READ - invalid or expired chunk access token for chunk %016"PRIX64,chunkid);
+#ifdef HAVE___SYNC_FETCH_AND_OP
+				__sync_fetch_and_add(&stats_tokreject,1);
+#else
+				zassert(pthread_mutex_lock(&statslock));
+				stats_tokreject++;
+				zassert(pthread_mutex_unlock(&statslock));
+#endif
+				packet = mainserv_create_packet(&wptr,CSTOCL_READ_STATUS,8+1);
+				put64bit(&wptr,chunkid);
+				put8bit(&wptr,MFS_ERROR_BADTOKEN);
+				return mainserv_send_and_free("read status",sock,packet,8+1);
+			}
+#ifdef HAVE___SYNC_FETCH_AND_OP
+			__sync_fetch_and_add(&stats_tokaccept,1);
+#else
+			zassert(pthread_mutex_lock(&statslock));
+			stats_tokaccept++;
+			zassert(pthread_mutex_unlock(&statslock));
+#endif
+		} else {
+			mfs_log(MFSLOG_SYSLOG,MFSLOG_WARNING,"CLTOCS_READ - chunk access token required but not provided for chunk %016"PRIX64,chunkid);
+#ifdef HAVE___SYNC_FETCH_AND_OP
+			__sync_fetch_and_add(&stats_tokreject,1);
+#else
+			zassert(pthread_mutex_lock(&statslock));
+			stats_tokreject++;
+			zassert(pthread_mutex_unlock(&statslock));
+#endif
+			packet = mainserv_create_packet(&wptr,CSTOCL_READ_STATUS,8+1);
+			put64bit(&wptr,chunkid);
+			put8bit(&wptr,MFS_ERROR_BADTOKEN);
+			return mainserv_send_and_free("read status",sock,packet,8+1);
+		}
+	}
 	if (size==0) {
 		packet = mainserv_create_packet(&wptr,CSTOCL_READ_STATUS,8+1);
 		put64bit(&wptr,chunkid);
@@ -1255,8 +1310,16 @@ uint8_t mainserv_write(int sock,const uint8_t *data,uint32_t length) {
 	fwdport = 0; // make old compilers happy
 	fwdip = 0; // make old compilers happy
 	if (length&1) {
-		if (length<13 || ((length-13)%6)!=0) {
-			mfs_log(MFSLOG_SYSLOG,MFSLOG_WARNING,"CLTOCS_WRITE - wrong size (%"PRIu32"/13+N*6)",length);
+		/* odd length: has protover byte */
+		uint32_t base = 13; // protover:1 + chunkid:8 + version:4
+		uint32_t remainder;
+		protover = data[0]; // peek without consuming
+		if (protover==2) {
+			base += 4 + CHUNK_TOKEN_SIZE; // expiry:4 + token:32
+		}
+		remainder = length - base;
+		if (length<base || (remainder%6)!=0) {
+			mfs_log(MFSLOG_SYSLOG,MFSLOG_WARNING,"CLTOCS_WRITE - wrong size (%"PRIu32")",length);
 			return 0;
 		}
 		protover = get8bit(&data);
@@ -1272,7 +1335,64 @@ uint8_t mainserv_write(int sock,const uint8_t *data,uint32_t length) {
 	}
 	gchunkid = get64bit(&data);
 	gversion = get32bit(&data);
-	if (length>((protover)?13:12)) { // write and forward data
+	/* token validation for writes */
+	if (protover==2 && masterconn_chunk_token_enabled()) {
+		uint32_t expiry;
+		const uint8_t *token;
+		uint32_t now;
+		expiry = get32bit(&data);
+		token = data;
+		data += CHUNK_TOKEN_SIZE;
+		now = (uint32_t)time(NULL);
+		if (!chunk_token_validate(masterconn_get_chunk_token_secret(),gchunkid,gversion,expiry,token,now)) {
+			mfs_log(MFSLOG_SYSLOG,MFSLOG_WARNING,"CLTOCS_WRITE - invalid or expired chunk access token for chunk %016"PRIX64,gchunkid);
+#ifdef HAVE___SYNC_FETCH_AND_OP
+			__sync_fetch_and_add(&stats_tokreject,1);
+#else
+			zassert(pthread_mutex_lock(&statslock));
+			stats_tokreject++;
+			zassert(pthread_mutex_unlock(&statslock));
+#endif
+			packet = mainserv_create_packet(&wptr,CSTOCL_WRITE_STATUS,8+4+1);
+			put64bit(&wptr,gchunkid);
+			put32bit(&wptr,0);
+			put8bit(&wptr,MFS_ERROR_BADTOKEN);
+			return mainserv_send_and_free("write status",sock,packet,8+4+1);
+		}
+#ifdef HAVE___SYNC_FETCH_AND_OP
+		__sync_fetch_and_add(&stats_tokaccept,1);
+#else
+		zassert(pthread_mutex_lock(&statslock));
+		stats_tokaccept++;
+		zassert(pthread_mutex_unlock(&statslock));
+#endif
+	} else if (masterconn_chunk_token_enabled()) {
+		mfs_log(MFSLOG_SYSLOG,MFSLOG_WARNING,"CLTOCS_WRITE - chunk access token required but not provided for chunk %016"PRIX64,gchunkid);
+#ifdef HAVE___SYNC_FETCH_AND_OP
+		__sync_fetch_and_add(&stats_tokreject,1);
+#else
+		zassert(pthread_mutex_lock(&statslock));
+		stats_tokreject++;
+		zassert(pthread_mutex_unlock(&statslock));
+#endif
+		packet = mainserv_create_packet(&wptr,CSTOCL_WRITE_STATUS,8+4+1);
+		put64bit(&wptr,gchunkid);
+		put32bit(&wptr,0);
+		put8bit(&wptr,MFS_ERROR_BADTOKEN);
+		return mainserv_send_and_free("write status",sock,packet,8+4+1);
+	}
+	{
+		/* calculate base size (everything consumed before CS chain) */
+		uint32_t basesize;
+		if (protover==2) {
+			basesize = 13 + 4 + CHUNK_TOKEN_SIZE; // protover:1 + chunkid:8 + version:4 + expiry:4 + token:32
+		} else if (protover) {
+			basesize = 13; // protover:1 + chunkid:8 + version:4
+		} else {
+			basesize = 12; // chunkid:8 + version:4
+		}
+	if (length>basesize) { // write and forward data
+		uint32_t chainsize = length - basesize - 6; // remaining chain after removing first CS
 		fwdip = get32bit(&data);
 		fwdport = get16bit(&data);
 		fwdsock = -1;
@@ -1291,18 +1411,16 @@ uint8_t mainserv_write(int sock,const uint8_t *data,uint32_t length) {
 			fwdsock = mainserv_connect(fwdip,fwdport,CONNECT_TIMEOUT(i));
 #endif
 			if (fwdsock>=0) {
-				packet = mainserv_create_packet(&wptr,CLTOCS_WRITE,length-6);
+				/* Forward without token - CS-to-CS doesn't need it */
+				uint32_t fwdlen = (protover?13:12) + chainsize;
+				packet = mainserv_create_packet(&wptr,CLTOCS_WRITE,fwdlen);
 				if (protover) {
-					put8bit(&wptr,protover);
+					put8bit(&wptr,1); // downgrade to protover 1 (strip token)
 				}
 				put64bit(&wptr,gchunkid);
 				put32bit(&wptr,gversion);
-				if (protover) {
-					memcpy(wptr,data,length-13-6);
-				} else {
-					memcpy(wptr,data,length-12-6);
-				}
-				if (mainserv_send_and_free("write init",fwdsock,packet,length-6)) {
+				memcpy(wptr,data,chainsize);
+				if (mainserv_send_and_free("write init",fwdsock,packet,fwdlen)) {
 					break;
 				}
 				tcpclose(fwdsock);
@@ -1322,6 +1440,7 @@ uint8_t mainserv_write(int sock,const uint8_t *data,uint32_t length) {
 	} else { // last in chain
 		fwdsock=-1;
 	}
+	} // end basesize block
 	if (protover) {
 		if (fwdsock>=0) {
 			mainserv_sock_nop_init(&fsn,fwdsock);

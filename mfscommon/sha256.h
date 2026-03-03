@@ -1,29 +1,40 @@
 /*
  * Copyright (C) 2025 Jakub Kruszona-Zawadzki, Saglabs SA
- * 
+ *
  * This file is part of MooseFS.
- * 
+ *
  * MooseFS is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, version 2 (only).
- * 
+ *
  * MooseFS is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, see
  * <https://www.gnu.org/licenses/>.
  */
 
-#ifndef _MAINSERV_H_
-#define _MAINSERV_H_
+#ifndef _SHA256_H_
+#define _SHA256_H_
 
-void mainserv_stats(uint64_t *bin,uint64_t *bout,uint32_t *hlopr,uint32_t *hlopw,uint32_t *tokaccept,uint32_t *tokreject);
-uint8_t mainserv_read(int sock,const uint8_t *packet,uint32_t length);
-uint8_t mainserv_write(int sock,const uint8_t *packet,uint32_t length);
-// void mainserv_serve(int sock);
-int mainserv_init(void);
+#include <inttypes.h>
+
+#define SHA256_DIGEST_SIZE 32
+#define SHA256_BLOCK_SIZE 64
+
+typedef struct _sha256ctx {
+	uint32_t state[8];
+	uint64_t count;
+	uint8_t buffer[64];
+} sha256ctx;
+
+void sha256_init(sha256ctx *ctx);
+void sha256_update(sha256ctx *ctx,const uint8_t *data,uint32_t len);
+void sha256_final(uint8_t digest[32],sha256ctx *ctx);
+
+void hmac_sha256(const uint8_t *key,uint32_t keylen,const uint8_t *data,uint32_t datalen,uint8_t digest[32]);
 
 #endif
