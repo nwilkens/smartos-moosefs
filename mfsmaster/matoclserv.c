@@ -366,7 +366,7 @@ static inline int matoclserv_fuse_write_chunk_common(matoclserventry *eptr,uint3
 			fs_writeend(0,0,chunkid,0,NULL);	// ignore status - just do it.
 			return 0;
 		}
-		if (eptr->version>=VERSION2INT(4,59,0) && chunk_token_enabled) {
+		if (eptr->version>=VERSION2INT(4,58,0) && chunk_token_enabled) {
 			ptr = matoclserv_create_packet(eptr,MATOCL_FUSE_WRITE_CHUNK,25+CHUNK_TOKEN_SIZE+4+count*14);
 		} else if (eptr->version>=VERSION2INT(3,0,10)) {
 			ptr = matoclserv_create_packet(eptr,MATOCL_FUSE_WRITE_CHUNK,25+count*14);
@@ -376,7 +376,7 @@ static inline int matoclserv_fuse_write_chunk_common(matoclserventry *eptr,uint3
 			ptr = matoclserv_create_packet(eptr,MATOCL_FUSE_WRITE_CHUNK,24+count*6);
 		}
 		put32bit(&ptr,msgid);
-		if (eptr->version>=VERSION2INT(4,59,0) && chunk_token_enabled) {
+		if (eptr->version>=VERSION2INT(4,58,0) && chunk_token_enabled) {
 			put8bit(&ptr,4); // protocolid==4: token
 		} else if (eptr->version>=VERSION2INT(3,0,10)) {
 			put8bit(&ptr,2);
@@ -386,7 +386,7 @@ static inline int matoclserv_fuse_write_chunk_common(matoclserventry *eptr,uint3
 		put64bit(&ptr,fleng);
 		put64bit(&ptr,chunkid);
 		put32bit(&ptr,version);
-		if (eptr->version>=VERSION2INT(4,59,0) && chunk_token_enabled) {
+		if (eptr->version>=VERSION2INT(4,58,0) && chunk_token_enabled) {
 			uint32_t expiry = (uint32_t)time(NULL) + CHUNK_TOKEN_TTL;
 			put32bit(&ptr,expiry);
 			chunk_token_generate(chunk_token_secret,chunkid,version,expiry,ptr);
@@ -475,7 +475,7 @@ static inline int matoclserv_fuse_read_chunk_common(matoclserventry *eptr,uint32
 		return 0;
 	}
 	dcm_access(inode,sessions_get_id(eptr->sesdata));
-	if (eptr->version>=VERSION2INT(4,59,0) && chunk_token_enabled) {
+	if (eptr->version>=VERSION2INT(4,58,0) && chunk_token_enabled) {
 		ptr = matoclserv_create_packet(eptr,MATOCL_FUSE_READ_CHUNK,25+CHUNK_TOKEN_SIZE+4+count*14);
 	} else if (eptr->version>=VERSION2INT(3,0,10)) {
 		ptr = matoclserv_create_packet(eptr,MATOCL_FUSE_READ_CHUNK,25+count*14);
@@ -485,7 +485,7 @@ static inline int matoclserv_fuse_read_chunk_common(matoclserventry *eptr,uint32
 		ptr = matoclserv_create_packet(eptr,MATOCL_FUSE_READ_CHUNK,24+count*6);
 	}
 	put32bit(&ptr,msgid);
-	if (eptr->version>=VERSION2INT(4,59,0) && chunk_token_enabled) {
+	if (eptr->version>=VERSION2INT(4,58,0) && chunk_token_enabled) {
 		if (split) {
 			put8bit(&ptr,5); // protocolid==5: token + split
 		} else {
@@ -503,7 +503,7 @@ static inline int matoclserv_fuse_read_chunk_common(matoclserventry *eptr,uint32
 	put64bit(&ptr,fleng);
 	put64bit(&ptr,chunkid);
 	put32bit(&ptr,version);
-	if (eptr->version>=VERSION2INT(4,59,0) && chunk_token_enabled) {
+	if (eptr->version>=VERSION2INT(4,58,0) && chunk_token_enabled) {
 		uint32_t expiry = (uint32_t)time(NULL) + CHUNK_TOKEN_TTL;
 		put32bit(&ptr,expiry);
 		chunk_token_generate(chunk_token_secret,chunkid,version,expiry,ptr);
@@ -780,7 +780,7 @@ void matoclserv_chunk_status(uint64_t chunkid,uint8_t status) {
 			fs_rollback(inode,indx,prevchunkid,chunkid);	// ignore status - it's error anyway
 			return;
 		}
-		if (eptr->version>=VERSION2INT(4,59,0) && chunk_token_enabled) {
+		if (eptr->version>=VERSION2INT(4,58,0) && chunk_token_enabled) {
 			ptr = matoclserv_create_packet(eptr,MATOCL_FUSE_WRITE_CHUNK,25+CHUNK_TOKEN_SIZE+4+count*14);
 		} else if (eptr->version>=VERSION2INT(3,0,10)) {
 			ptr = matoclserv_create_packet(eptr,MATOCL_FUSE_WRITE_CHUNK,25+count*14);
@@ -790,7 +790,7 @@ void matoclserv_chunk_status(uint64_t chunkid,uint8_t status) {
 			ptr = matoclserv_create_packet(eptr,MATOCL_FUSE_WRITE_CHUNK,24+count*6);
 		}
 		put32bit(&ptr,msgid);
-		if (eptr->version>=VERSION2INT(4,59,0) && chunk_token_enabled) {
+		if (eptr->version>=VERSION2INT(4,58,0) && chunk_token_enabled) {
 			put8bit(&ptr,4);
 		} else if (eptr->version>=VERSION2INT(3,0,10)) {
 			put8bit(&ptr,2);
@@ -800,7 +800,7 @@ void matoclserv_chunk_status(uint64_t chunkid,uint8_t status) {
 		put64bit(&ptr,fleng);
 		put64bit(&ptr,chunkid);
 		put32bit(&ptr,version);
-		if (eptr->version>=VERSION2INT(4,59,0) && chunk_token_enabled) {
+		if (eptr->version>=VERSION2INT(4,58,0) && chunk_token_enabled) {
 			uint32_t expiry = (uint32_t)time(NULL) + CHUNK_TOKEN_TTL;
 			put32bit(&ptr,expiry);
 			chunk_token_generate(chunk_token_secret,chunkid,version,expiry,ptr);
