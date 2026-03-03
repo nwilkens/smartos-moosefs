@@ -27,6 +27,7 @@
 #include <sys/uio.h>
 #include <unistd.h>
 #include <poll.h>
+#include <time.h>
 #include <sys/time.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -43,6 +44,8 @@
 #include "clocks.h"
 
 #include "replicator.h"
+#include "chunktoken.h"
+#include "masterconn.h"
 
 #define MAX_REP_TIME_SEC 150
 #define PROGRESS_CHECK 30
@@ -319,11 +322,26 @@ static uint8_t* rep_create_packet(repsrc *rs,uint32_t type,uint32_t size) {
 
 static void rep_create_read_request(repsrc *rs,uint32_t offset,uint32_t bsize) {
 	uint8_t *ptr;
-	ptr = rep_create_packet(rs,CLTOCS_READ,20);
-	put64bit(&ptr,rs->chunkid);
-	put32bit(&ptr,rs->version);
-	put32bit(&ptr,offset);
-	put32bit(&ptr,bsize);
+	if (masterconn_chunk_token_enabled()) {
+		uint32_t expiry;
+		uint8_t token[CHUNK_TOKEN_SIZE];
+		expiry = (uint32_t)time(NULL) + CHUNK_TOKEN_TTL;
+		chunk_token_generate(masterconn_get_chunk_token_secret(),rs->chunkid,rs->version,expiry,token);
+		ptr = rep_create_packet(rs,CLTOCS_READ,21+4+CHUNK_TOKEN_SIZE);
+		put8bit(&ptr,2); // protover 2 = token
+		put64bit(&ptr,rs->chunkid);
+		put32bit(&ptr,rs->version);
+		put32bit(&ptr,offset);
+		put32bit(&ptr,bsize);
+		put32bit(&ptr,expiry);
+		memcpy(ptr,token,CHUNK_TOKEN_SIZE);
+	} else {
+		ptr = rep_create_packet(rs,CLTOCS_READ,20);
+		put64bit(&ptr,rs->chunkid);
+		put32bit(&ptr,rs->version);
+		put32bit(&ptr,offset);
+		put32bit(&ptr,bsize);
+	}
 }
 
 /*
