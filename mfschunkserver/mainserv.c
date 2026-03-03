@@ -1411,15 +1411,32 @@ uint8_t mainserv_write(int sock,const uint8_t *data,uint32_t length) {
 			fwdsock = mainserv_connect(fwdip,fwdport,CONNECT_TIMEOUT(i));
 #endif
 			if (fwdsock>=0) {
-				/* Forward without token - CS-to-CS doesn't need it */
-				uint32_t fwdlen = (protover?13:12) + chainsize;
-				packet = mainserv_create_packet(&wptr,CLTOCS_WRITE,fwdlen);
-				if (protover) {
-					put8bit(&wptr,1); // downgrade to protover 1 (strip token)
+				uint32_t fwdlen;
+				if (masterconn_chunk_token_enabled()) {
+					/* CS-to-CS forward: generate fresh token */
+					uint32_t fwd_expiry;
+					uint8_t fwd_token[CHUNK_TOKEN_SIZE];
+					fwd_expiry = (uint32_t)time(NULL) + CHUNK_TOKEN_TTL;
+					chunk_token_generate(masterconn_get_chunk_token_secret(),gchunkid,gversion,fwd_expiry,fwd_token);
+					fwdlen = 13 + 4 + CHUNK_TOKEN_SIZE + chainsize;
+					packet = mainserv_create_packet(&wptr,CLTOCS_WRITE,fwdlen);
+					put8bit(&wptr,2); // protover 2 = with token
+					put64bit(&wptr,gchunkid);
+					put32bit(&wptr,gversion);
+					put32bit(&wptr,fwd_expiry);
+					memcpy(wptr,fwd_token,CHUNK_TOKEN_SIZE);
+					wptr += CHUNK_TOKEN_SIZE;
+					memcpy(wptr,data,chainsize);
+				} else {
+					fwdlen = (protover?13:12) + chainsize;
+					packet = mainserv_create_packet(&wptr,CLTOCS_WRITE,fwdlen);
+					if (protover) {
+						put8bit(&wptr,1); // protover 1 (no token)
+					}
+					put64bit(&wptr,gchunkid);
+					put32bit(&wptr,gversion);
+					memcpy(wptr,data,chainsize);
 				}
-				put64bit(&wptr,gchunkid);
-				put32bit(&wptr,gversion);
-				memcpy(wptr,data,chainsize);
 				if (mainserv_send_and_free("write init",fwdsock,packet,fwdlen)) {
 					break;
 				}
